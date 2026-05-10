@@ -1,0 +1,85 @@
+[project]
+name = "hyperliquid-whale-bot"
+version = "0.1.0"
+description = "Telegram bot that tracks open positions of Hyperliquid wallets and sends real-time notifications about position changes (open/close/resize/leverage/TWAP)."
+readme = "README.md"
+authors = [
+    { name = "danysvnt" },
+]
+license = { text = "MIT" }
+requires-python = ">=3.11,<4.0"
+keywords = ["hyperliquid", "telegram", "bot", "trading", "whale", "tracker", "onchain"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Office/Business :: Financial",
+]
+dependencies = [
+    "hyperliquid-python-sdk>=0.16.0",
+    "aiogram>=3.13.0",
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "python-dotenv>=1.0.1",
+    "structlog>=24.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+]
+
+[project.scripts]
+hyperliquid-whale-bot = "hyperliquid_whale_bot.__main__:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+    "BLE", # flake8-blind-except
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "RUF001", # ambiguous unicode chars in string (Cyrillic — intentional)
+    "RUF002", # ambiguous unicode chars in docstring
+    "RUF003", # ambiguous unicode chars in comment
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "hyperliquid.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
