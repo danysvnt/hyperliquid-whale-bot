@@ -95,7 +95,10 @@ class Watcher:
                 log.warning("watcher.fetch_failed", address=address, error=repr(exc))
                 return
 
-            await self._handle_snapshot(snapshot)
+            try:
+                await self._handle_snapshot(snapshot)
+            except Exception as exc:  # noqa: BLE001 -- DB / dispatch errors on one wallet must not cancel sibling polls in this tick
+                log.error("watcher.handle_failed", address=address, error=repr(exc))
 
     async def _handle_snapshot(self, snapshot: WalletSnapshot) -> None:
         previous = await self._repo.get_snapshot(snapshot.address)

@@ -80,14 +80,14 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
         existing_label = await repo.find_label(chat_id, address)
         if existing_label is not None:
             await message.answer(
-                t("add.already_tracked", lang, label=existing_label),
+                t("add.already_tracked", lang, label=_html_escape(existing_label)),
                 parse_mode=ParseMode.HTML,
             )
             return
 
         await repo.add_wallet(chat_id, address, label)
         await message.answer(
-            t("add.success", lang, label=label, address=address.lower()),
+            t("add.success", lang, label=_html_escape(label), address=address.lower()),
             parse_mode=ParseMode.HTML,
             reply_markup=explorer_keyboard(address, lang),
         )
