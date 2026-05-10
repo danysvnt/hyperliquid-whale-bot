@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from aiogram import F, Router
+import contextlib
+
+from aiogram import Bot, F, Router
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
@@ -12,8 +14,14 @@ from ..hl import HyperliquidClient
 from ..logging_setup import get_logger
 from ..storage import Repository
 from .formatters import format_snapshot
-from .i18n import SUPPORTED_LANGS, t
-from .keyboards import explorer_keyboard, language_keyboard
+from .i18n import SUPPORTED_LANGS, button_texts, t
+from .keyboards import (
+    explorer_keyboard,
+    language_keyboard,
+    main_reply_keyboard,
+    positions_menu_keyboard,
+    wallet_picker_keyboard,
+)
 
 log = get_logger(__name__)
 
@@ -30,23 +38,18 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
         await repo.upsert_user(chat_id)
         lang = await repo.get_user_language(chat_id)
         text = f"{t('welcome.title', lang)}\n\n{t('welcome.help_hint', lang)}"
-        await message.answer(text, parse_mode=ParseMode.HTML)
+        await message.answer(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=main_reply_keyboard(lang),
+        )
 
     @router.message(Command("help"))
     async def cmd_help(message: Message) -> None:
         if not await _ensure_access(message, settings):
             return
         lang = await repo.get_user_language(_chat_id(message))
-        lines = [
-            t("help.title", lang),
-            "",
-            t("help.add", lang),
-            t("help.remove", lang),
-            t("help.list", lang),
-            t("help.status", lang),
-            t("help.lang", lang),
-        ]
-        await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+        await _send_help(message, lang)
 
     @router.message(Command("add"))
     async def cmd_add(message: Message) -> None:
@@ -115,16 +118,7 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
             return
         chat_id = _chat_id(message)
         lang = await repo.get_user_language(chat_id)
-        wallets = await repo.list_wallets(chat_id)
-
-        if not wallets:
-            await message.answer(t("list.empty", lang))
-            return
-
-        lines = [t("list.title", lang, count=len(wallets), limit=settings.max_wallets_per_user)]
-        for w in wallets:
-            lines.append(f"• <b>{_html_escape(w.label)}</b> — <code>{w.address}</code>")
-        await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+        await _send_wallet_list(message, repo, settings, chat_id, lang)
 
     @router.message(Command("status"))
     async def cmd_status(message: Message) -> None:
@@ -139,27 +133,20 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
             return
 
         target = args[1].strip()
-        # Resolve label → address.
         wallet = await _resolve_wallet(repo, chat_id, target)
         if wallet is None:
             await message.answer(t("remove.not_found", lang), parse_mode=ParseMode.HTML)
             return
 
-        await message.answer(t("status.fetching", lang))
+        await _send_wallet_snapshot(message, hl, wallet.address, wallet.label, lang)
 
-        try:
-            snapshot = await hl.fetch_snapshot(wallet.address)
-        except Exception as exc:  # noqa: BLE001
-            log.error("status.fetch_failed", address=wallet.address, error=repr(exc))
-            await message.answer(t("status.error", lang))
+    @router.message(Command("positions"))
+    async def cmd_positions(message: Message) -> None:
+        if not await _ensure_access(message, settings):
             return
-
-        text = format_snapshot(snapshot, label=wallet.label, lang=lang)
-        await message.answer(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=explorer_keyboard(wallet.address, lang),
-        )
+        chat_id = _chat_id(message)
+        lang = await repo.get_user_language(chat_id)
+        await _send_positions_menu(message, repo, chat_id, lang)
 
     @router.message(Command("lang"))
     async def cmd_lang(message: Message) -> None:
@@ -168,6 +155,38 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
         lang = await repo.get_user_language(_chat_id(message))
         await message.answer(t("lang.choose", lang), reply_markup=language_keyboard())
 
+    # --- Reply-keyboard buttons (text matches in any supported language) ----
+    @router.message(F.text.in_(button_texts("kb.wallets")))
+    async def kb_wallets(message: Message) -> None:
+        if not await _ensure_access(message, settings):
+            return
+        chat_id = _chat_id(message)
+        lang = await repo.get_user_language(chat_id)
+        await _send_wallet_list(message, repo, settings, chat_id, lang)
+
+    @router.message(F.text.in_(button_texts("kb.positions")))
+    async def kb_positions(message: Message) -> None:
+        if not await _ensure_access(message, settings):
+            return
+        chat_id = _chat_id(message)
+        lang = await repo.get_user_language(chat_id)
+        await _send_positions_menu(message, repo, chat_id, lang)
+
+    @router.message(F.text.in_(button_texts("kb.help")))
+    async def kb_help(message: Message) -> None:
+        if not await _ensure_access(message, settings):
+            return
+        lang = await repo.get_user_language(_chat_id(message))
+        await _send_help(message, lang)
+
+    @router.message(F.text.in_(button_texts("kb.lang")))
+    async def kb_lang(message: Message) -> None:
+        if not await _ensure_access(message, settings):
+            return
+        lang = await repo.get_user_language(_chat_id(message))
+        await message.answer(t("lang.choose", lang), reply_markup=language_keyboard())
+
+    # --- Inline callbacks ---------------------------------------------------
     @router.callback_query(F.data.startswith("lang:"))
     async def cb_lang(query: CallbackQuery) -> None:
         if query.data is None or not query.message or query.from_user is None:
@@ -179,13 +198,70 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
             return
         chat_id = query.message.chat.id
         await repo.upsert_user(chat_id, language=new_lang)
-        try:
-            # `query.message` may be inaccessible in groups; guard with try.
+        with contextlib.suppress(Exception):
+            # query.message may be inaccessible in groups or no longer editable.
             await query.message.edit_text(t("lang.changed", new_lang))  # type: ignore[union-attr]
-        except Exception:  # noqa: BLE001
-            await query.answer(t("lang.changed", new_lang))
-        else:
+        # Refresh reply keyboard with new language labels.
+        if query.bot is not None:
+            await query.bot.send_message(
+                chat_id,
+                t("welcome.help_hint", new_lang),
+                reply_markup=main_reply_keyboard(new_lang),
+            )
+        await query.answer()
+
+    @router.callback_query(F.data == "pos:all")
+    async def cb_positions_all(query: CallbackQuery) -> None:
+        if query.message is None or query.bot is None:
             await query.answer()
+            return
+        chat_id = query.message.chat.id
+        lang = await repo.get_user_language(chat_id)
+        wallets = await repo.list_wallets(chat_id)
+        if not wallets:
+            await query.answer()
+            await query.bot.send_message(chat_id, t("positions.empty", lang))
+            return
+        await query.answer()
+        for w in wallets:
+            await _send_wallet_snapshot_via_bot(query.bot, chat_id, hl, w.address, w.label, lang)
+
+    @router.callback_query(F.data == "pos:pick")
+    async def cb_positions_pick(query: CallbackQuery) -> None:
+        if query.message is None or query.bot is None:
+            await query.answer()
+            return
+        chat_id = query.message.chat.id
+        lang = await repo.get_user_language(chat_id)
+        wallets = await repo.list_wallets(chat_id)
+        if not wallets:
+            await query.answer()
+            await query.bot.send_message(chat_id, t("positions.empty", lang))
+            return
+        await query.answer()
+        await query.bot.send_message(
+            chat_id,
+            t("positions.pick_prompt", lang),
+            reply_markup=wallet_picker_keyboard(wallets, lang),
+        )
+
+    @router.callback_query(F.data.startswith("pos:show:"))
+    async def cb_positions_show(query: CallbackQuery) -> None:
+        if query.data is None or query.message is None or query.bot is None:
+            await query.answer()
+            return
+        address = query.data.split(":", 2)[2]
+        chat_id = query.message.chat.id
+        lang = await repo.get_user_language(chat_id)
+        wallet = await _resolve_wallet(repo, chat_id, address)
+        if wallet is None:
+            await query.answer()
+            await query.bot.send_message(chat_id, t("positions.not_found", lang))
+            return
+        await query.answer()
+        await _send_wallet_snapshot_via_bot(
+            query.bot, chat_id, hl, wallet.address, wallet.label, lang
+        )
 
     return router
 
@@ -195,6 +271,91 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
 
 def _chat_id(message: Message) -> int:
     return message.chat.id
+
+
+async def _send_help(message: Message, lang: str) -> None:
+    lines = [
+        t("help.title", lang),
+        "",
+        t("help.add", lang),
+        t("help.remove", lang),
+        t("help.list", lang),
+        t("help.status", lang),
+        t("help.positions", lang),
+        t("help.lang", lang),
+    ]
+    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def _send_wallet_list(
+    message: Message, repo: Repository, settings: Settings, chat_id: int, lang: str
+) -> None:
+    wallets = await repo.list_wallets(chat_id)
+    if not wallets:
+        await message.answer(t("list.empty", lang))
+        return
+    lines = [t("list.title", lang, count=len(wallets), limit=settings.max_wallets_per_user)]
+    for w in wallets:
+        lines.append(f"• <b>{_html_escape(w.label)}</b> — <code>{w.address}</code>")
+    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def _send_positions_menu(message: Message, repo: Repository, chat_id: int, lang: str) -> None:
+    wallets = await repo.list_wallets(chat_id)
+    if not wallets:
+        await message.answer(t("positions.empty", lang))
+        return
+    await message.answer(
+        t("positions.choose", lang),
+        reply_markup=positions_menu_keyboard(lang),
+    )
+
+
+async def _send_wallet_snapshot(
+    message: Message,
+    hl: HyperliquidClient,
+    address: str,
+    label: str,
+    lang: str,
+) -> None:
+    await message.answer(t("status.fetching", lang))
+    try:
+        snapshot = await hl.fetch_snapshot(address)
+    except Exception as exc:  # noqa: BLE001
+        log.error("status.fetch_failed", address=address, error=repr(exc))
+        await message.answer(t("status.error", lang))
+        return
+    text = format_snapshot(snapshot, label=label, lang=lang)
+    await message.answer(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=explorer_keyboard(address, lang),
+    )
+
+
+async def _send_wallet_snapshot_via_bot(
+    bot: Bot,
+    chat_id: int,
+    hl: HyperliquidClient,
+    address: str,
+    label: str,
+    lang: str,
+) -> None:
+    """Same as _send_wallet_snapshot but for callbacks (no source Message to .answer on)."""
+    await bot.send_message(chat_id, t("status.fetching", lang))
+    try:
+        snapshot = await hl.fetch_snapshot(address)
+    except Exception as exc:  # noqa: BLE001
+        log.error("status.fetch_failed", address=address, error=repr(exc))
+        await bot.send_message(chat_id, t("status.error", lang))
+        return
+    text = format_snapshot(snapshot, label=label, lang=lang)
+    await bot.send_message(
+        chat_id,
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=explorer_keyboard(address, lang),
+    )
 
 
 def _looks_like_address(addr: str) -> bool:
@@ -235,7 +396,6 @@ async def _ensure_access(message: Message, settings: Settings) -> bool:
     """Whitelist check. Returns True if the chat is allowed; otherwise sends a denial reply."""
     if settings.is_whitelisted(message.chat.id):
         return True
-    # Use default lang (we don't even create a user row for non-whitelisted chats).
     await message.answer(t("access.denied"))
     return False
 

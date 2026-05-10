@@ -13,6 +13,17 @@ from typing import Final
 SUPPORTED_LANGS: Final[tuple[str, ...]] = ("ru", "en", "uk")
 DEFAULT_LANG: Final[str] = "ru"
 
+
+def button_texts(key: str) -> set[str]:
+    """Return all localized variants of a translation key.
+
+    Used to match incoming reply-keyboard taps against any of the supported
+    languages (the user could be on RU and tap the persistent 'Wallets' button
+    rendered in RU; another user on EN would see/tap the EN label).
+    """
+    return {v for v in _TRANSLATIONS.get(key, {}).values()}
+
+
 # Translation table. Keys are short, stable identifiers; values are dicts keyed by language.
 _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     # --- Welcome / help ---
@@ -50,6 +61,11 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "ru": "<code>/status &lt;адрес или метка&gt;</code> — текущие открытые позиции",
         "en": "<code>/status &lt;address or label&gt;</code> — current open positions",
         "uk": "<code>/status &lt;адреса або мітка&gt;</code> — поточні відкриті позиції",
+    },
+    "help.positions": {
+        "ru": "/positions — позиции всех или одного кошелька (кнопки)",
+        "en": "/positions — positions for all or one tracked wallet (buttons)",
+        "uk": "/positions — позиції всіх або одного гаманця (кнопки)",
     },
     "help.lang": {
         "ru": "/lang — сменить язык интерфейса (ru / en / uk)",
@@ -181,6 +197,43 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     "btn.hypurrscan": {"ru": "Hypurrscan", "en": "Hypurrscan", "uk": "Hypurrscan"},
     "btn.hyperdash": {"ru": "Hyperdash", "en": "Hyperdash", "uk": "Hyperdash"},
     "btn.hyperliquid": {"ru": "Hyperliquid", "en": "Hyperliquid", "uk": "Hyperliquid"},
+    "btn.cmm": {"ru": "Coinmarketman", "en": "Coinmarketman", "uk": "Coinmarketman"},
+    # --- main reply keyboard (persistent buttons under input field) ---
+    "kb.wallets": {"ru": "🐳 Кошельки", "en": "🐳 Wallets", "uk": "🐳 Гаманці"},
+    "kb.positions": {"ru": "📊 Позиции", "en": "📊 Positions", "uk": "📊 Позиції"},
+    "kb.help": {"ru": "❔ Помощь", "en": "❔ Help", "uk": "❔ Допомога"},
+    "kb.lang": {"ru": "🌐 Язык", "en": "🌐 Language", "uk": "🌐 Мова"},
+    # --- positions menu (after tapping the 'Positions' button) ---
+    "positions.choose": {
+        "ru": "Что показать?",
+        "en": "What to show?",
+        "uk": "Що показати?",
+    },
+    "positions.btn_all": {
+        "ru": "📋 Все кошельки",
+        "en": "📋 All wallets",
+        "uk": "📋 Всі гаманці",
+    },
+    "positions.btn_pick": {
+        "ru": "🎯 Один кошелёк",
+        "en": "🎯 Pick one",
+        "uk": "🎯 Один гаманець",
+    },
+    "positions.pick_prompt": {
+        "ru": "Выбери кошелёк:",
+        "en": "Pick a wallet:",
+        "uk": "Обери гаманець:",
+    },
+    "positions.empty": {
+        "ru": "Список кошельков пуст — добавь хотя бы один через /add.",
+        "en": "You don't have any wallets yet — add one with /add first.",
+        "uk": "Список гаманців порожній — додай хоча б один через /add.",
+    },
+    "positions.not_found": {
+        "ru": "Этот кошелёк больше не в твоём списке.",
+        "en": "That wallet is no longer in your list.",
+        "uk": "Цього гаманця більше немає в твоєму списку.",
+    },
 }
 
 
