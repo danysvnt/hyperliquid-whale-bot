@@ -5,6 +5,7 @@ from __future__ import annotations
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from ..config import Settings
 from ..hl import HyperliquidClient
@@ -20,6 +21,7 @@ def build_bot(settings: Settings) -> Bot:
 
 
 def build_dispatcher(settings: Settings, repo: Repository, hl: HyperliquidClient) -> Dispatcher:
-    dp = Dispatcher()
+    # MemoryStorage is enough for our FSM needs (single-process; states are short-lived).
+    dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(build_router(settings=settings, repo=repo, hl=hl))
     return dp

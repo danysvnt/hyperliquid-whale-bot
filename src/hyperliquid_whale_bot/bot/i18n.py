@@ -43,9 +43,9 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "uk": "<b>Команди:</b>",
     },
     "help.add": {
-        "ru": "<code>/add &lt;0x...адрес&gt; [метка]</code> — добавить кошелёк в слежение",
-        "en": "<code>/add &lt;0x...address&gt; [label]</code> — start tracking a wallet",
-        "uk": "<code>/add &lt;0x...адреса&gt; [мітка]</code> — додати гаманець у відстеження",
+        "ru": "<code>/add &lt;0x...адрес&gt;</code> — добавить кошелёк (имя спросит вторым шагом)",
+        "en": "<code>/add &lt;0x...address&gt;</code> — add a wallet (label is asked next step)",
+        "uk": "<code>/add &lt;0x...адреса&gt;</code> — додати гаманець (ім'я буде запитане наступним кроком)",
     },
     "help.remove": {
         "ru": "<code>/remove &lt;адрес или метка&gt;</code> — снять с мониторинга",
@@ -74,9 +74,19 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     },
     # --- /add ---
     "add.usage": {
-        "ru": "Использование: <code>/add 0xADDRESS [метка]</code>",
-        "en": "Usage: <code>/add 0xADDRESS [label]</code>",
-        "uk": "Використання: <code>/add 0xADDRESS [мітка]</code>",
+        "ru": "Использование: <code>/add 0xADDRESS</code>\nМожно сразу с меткой: <code>/add 0xADDRESS метка</code>",
+        "en": "Usage: <code>/add 0xADDRESS</code>\nOr inline with a label: <code>/add 0xADDRESS label</code>",
+        "uk": "Використання: <code>/add 0xADDRESS</code>\nАбо відразу з міткою: <code>/add 0xADDRESS мітка</code>",
+    },
+    "add.ask_label": {
+        "ru": "Введи имя для этого кошелька (или нажми «Пропустить» — назову по адресу).",
+        "en": "Send a name for this wallet (or tap “Skip” to use a short address).",
+        "uk": "Введи ім'я для цього гаманця (або натисни «Пропустити» — назову по адресі).",
+    },
+    "add.cancelled": {
+        "ru": "❌ Добавление отменено.",
+        "en": "❌ Add cancelled.",
+        "uk": "❌ Додавання скасовано.",
     },
     "add.invalid_address": {
         "ru": "❌ Неверный адрес. Должен начинаться с <code>0x</code> и состоять из 42 символов.",
@@ -98,6 +108,11 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "en": "✅ Added <b>{label}</b>\n<code>{address}</code>\n\nFirst notification will arrive on the next position change.",
         "uk": "✅ Додано <b>{label}</b>\n<code>{address}</code>\n\nПерше сповіщення прийде при наступній зміні позиції.",
     },
+    "add.ask_address": {
+        "ru": "Пришли адрес кошелька (<code>0x…</code>, 42 символа).",
+        "en": "Send the wallet address (<code>0x…</code>, 42 chars).",
+        "uk": "Надішли адресу гаманця (<code>0x…</code>, 42 символи).",
+    },
     # --- /remove ---
     "remove.usage": {
         "ru": "Использование: <code>/remove &lt;адрес или метка&gt;</code>",
@@ -113,17 +128,6 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "ru": "❌ Не нашёл такого кошелька в твоём списке.",
         "en": "❌ Couldn't find that wallet in your list.",
         "uk": "❌ Не знайшов такого гаманця у твоєму списку.",
-    },
-    # --- /list ---
-    "list.empty": {
-        "ru": "Список пуст. Добавь кошелёк через /add.",
-        "en": "List is empty. Add a wallet with /add.",
-        "uk": "Список порожній. Додай гаманець через /add.",
-    },
-    "list.title": {
-        "ru": "<b>Отслеживаемые кошельки ({count}/{limit}):</b>",
-        "en": "<b>Tracked wallets ({count}/{limit}):</b>",
-        "uk": "<b>Відстежувані гаманці ({count}/{limit}):</b>",
     },
     # --- /status ---
     "status.usage": {
@@ -187,7 +191,7 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     "field.long": {"ru": "🟩 LONG", "en": "🟩 LONG", "uk": "🟩 LONG"},
     "field.short": {"ru": "🟥 SHORT", "en": "🟥 SHORT", "uk": "🟥 SHORT"},
     "field.size": {"ru": "Размер", "en": "Size", "uk": "Розмір"},
-    "field.notional": {"ru": "Ноционал", "en": "Notional", "uk": "Ноціонал"},
+    "field.amount": {"ru": "Сумма", "en": "Amount", "uk": "Сума"},
     "field.entry": {"ru": "Цена входа", "en": "Entry", "uk": "Ціна входу"},
     "field.leverage": {"ru": "Плечо", "en": "Leverage", "uk": "Плече"},
     "field.delta": {"ru": "Изменение", "en": "Change", "uk": "Зміна"},
@@ -233,6 +237,119 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "ru": "Этот кошелёк больше не в твоём списке.",
         "en": "That wallet is no longer in your list.",
         "uk": "Цього гаманця більше немає в твоєму списку.",
+    },
+    # --- wallet list (🐳 Кошельки) ---
+    "wlist.title": {
+        "ru": "🐳 <b>Твои кошельки</b> · {count}/{limit}\n<i>Тапни по кошельку, чтобы настроить.</i>",
+        "en": "🐳 <b>Your wallets</b> · {count}/{limit}\n<i>Tap a wallet to configure it.</i>",
+        "uk": "🐳 <b>Твої гаманці</b> · {count}/{limit}\n<i>Тапни на гаманець, щоб налаштувати.</i>",
+    },
+    "wlist.empty": {
+        "ru": "🐳 Список пуст. Нажми «➕ Добавить» или отправь адрес через /add.",
+        "en": "🐳 No wallets yet. Tap “➕ Add” or send an address via /add.",
+        "uk": "🐳 Список порожній. Натисни «➕ Додати» або надішли адресу через /add.",
+    },
+    "wlist.add_btn": {
+        "ru": "➕ Добавить кошелёк",
+        "en": "➕ Add wallet",
+        "uk": "➕ Додати гаманець",
+    },
+    # --- wallet settings (per-wallet screen) ---
+    "wset.title": {
+        "ru": "⚙️ <b>Настройки кошелька</b> · {label}\n<code>{address}</code>\n<i>Включите/выключите типы уведомлений:</i>",
+        "en": "⚙️ <b>Wallet settings</b> · {label}\n<code>{address}</code>\n<i>Toggle notification types on/off:</i>",
+        "uk": "⚙️ <b>Налаштування гаманця</b> · {label}\n<code>{address}</code>\n<i>Увімкни/вимкни типи сповіщень:</i>",
+    },
+    "wset.toggle.positions.on": {
+        "ru": "Позиции: ✅ ВКЛ",
+        "en": "Positions: ✅ ON",
+        "uk": "Позиції: ✅ УВІМК.",
+    },
+    "wset.toggle.positions.off": {
+        "ru": "Позиции: ⬜ ВЫКЛ",
+        "en": "Positions: ⬜ OFF",
+        "uk": "Позиції: ⬜ ВИМК.",
+    },
+    "wset.toggle.twap.on": {
+        "ru": "TWAP-ордера: ✅ ВКЛ · скоро",
+        "en": "TWAP orders: ✅ ON · soon",
+        "uk": "TWAP-ордери: ✅ УВІМК. · скоро",
+    },
+    "wset.toggle.twap.off": {
+        "ru": "TWAP-ордера: ⬜ ВЫКЛ · скоро",
+        "en": "TWAP orders: ⬜ OFF · soon",
+        "uk": "TWAP-ордери: ⬜ ВИМК. · скоро",
+    },
+    "wset.toggle.limit.on": {
+        "ru": "Лимитные ордера: ✅ ВКЛ · скоро",
+        "en": "Limit orders: ✅ ON · soon",
+        "uk": "Лімітні ордери: ✅ УВІМК. · скоро",
+    },
+    "wset.toggle.limit.off": {
+        "ru": "Лимитные ордера: ⬜ ВЫКЛ · скоро",
+        "en": "Limit orders: ⬜ OFF · soon",
+        "uk": "Лімітні ордери: ⬜ ВИМК. · скоро",
+    },
+    "wset.edit_name": {
+        "ru": "✏️ Сменить имя",
+        "en": "✏️ Edit name",
+        "uk": "✏️ Змінити ім'я",
+    },
+    "wset.delete": {
+        "ru": "🗑 Удалить кошелёк",
+        "en": "🗑 Delete wallet",
+        "uk": "🗑 Видалити гаманець",
+    },
+    "wset.back": {
+        "ru": "◀ К списку кошельков",
+        "en": "◀ Back to wallets",
+        "uk": "◀ До списку гаманців",
+    },
+    "wset.deleted": {
+        "ru": "✅ Кошелёк удалён.",
+        "en": "✅ Wallet deleted.",
+        "uk": "✅ Гаманець видалено.",
+    },
+    "wset.gone": {
+        "ru": "Этот кошелёк больше не в твоём списке.",
+        "en": "That wallet is no longer in your list.",
+        "uk": "Цього гаманця більше немає в твоєму списку.",
+    },
+    # --- edit-name flow ---
+    "edit.ask_new_label": {
+        "ru": "Пришли новое имя для <b>{label}</b>\n<code>{address}</code>",
+        "en": "Send a new name for <b>{label}</b>\n<code>{address}</code>",
+        "uk": "Надішли нове ім'я для <b>{label}</b>\n<code>{address}</code>",
+    },
+    "edit.too_long": {
+        "ru": "❌ Имя слишком длинное (макс {max} символов). Попробуй короче.",
+        "en": "❌ Name is too long (max {max} chars). Try a shorter one.",
+        "uk": "❌ Ім'я занадто довге (макс {max} символів). Спробуй коротше.",
+    },
+    "edit.empty": {
+        "ru": "❌ Пустое имя. Пришли хотя бы один символ.",
+        "en": "❌ Empty name. Send at least one character.",
+        "uk": "❌ Порожнє ім'я. Надішли хоча один символ.",
+    },
+    "edit.cancelled": {
+        "ru": "❌ Изменение имени отменено.",
+        "en": "❌ Rename cancelled.",
+        "uk": "❌ Зміну імені скасовано.",
+    },
+    "edit.success": {
+        "ru": "✅ Новое имя: <b>{label}</b>",
+        "en": "✅ Renamed to <b>{label}</b>",
+        "uk": "✅ Нове ім'я: <b>{label}</b>",
+    },
+    "edit.skip": {
+        "ru": "⏭ Пропустить",
+        "en": "⏭ Skip",
+        "uk": "⏭ Пропустити",
+    },
+    "common.cancel": {
+        "ru": "✖ Отменить",
+        "en": "✖ Cancel",
+        "uk": "✖ Скасувати",
     },
 }
 

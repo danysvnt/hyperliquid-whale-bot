@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from ..config import Settings
 from ..diff import diff_snapshots
 from ..logging_setup import get_logger
-from ..models import PositionEvent, WalletSnapshot
+from ..models import NotificationKind, PositionEvent, WalletSnapshot
 from ..storage import Repository
 from .client import HyperliquidClient
 
@@ -113,8 +113,11 @@ class Watcher:
         if not events:
             return
 
-        # Fan out to every chat subscribed to this wallet.
-        chats = await self._repo.chats_subscribed_to(snapshot.address)
+        # Fan out only to chats that have the 'positions' notification toggle ON.
+        # (All current events are position events; TWAP/limit are phase 2.)
+        chats = await self._repo.chats_subscribed_to(
+            snapshot.address, kind=NotificationKind.POSITIONS
+        )
         if not chats:
             return
 

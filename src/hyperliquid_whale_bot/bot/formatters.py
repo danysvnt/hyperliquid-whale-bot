@@ -11,17 +11,19 @@ from .i18n import t
 def format_event(event: PositionEvent, label: str, lang: str) -> str:
     """Render a `PositionEvent` as an HTML-formatted Telegram message."""
     header = _event_header(event, label, lang)
+    address_line = f"<code>{event.address.lower()}</code>"
     body = _event_body(event, lang)
-    return f"{header}\n\n{body}"
+    return f"{header}\n{address_line}\n\n{body}"
 
 
 def format_snapshot(snapshot: WalletSnapshot, label: str, lang: str) -> str:
     """Render the current open positions of a wallet (used by /status)."""
+    address_line = f"<code>{snapshot.address.lower()}</code>"
     if not snapshot.positions:
-        return t("status.no_positions", lang, label=escape(label))
+        return f"{t('status.no_positions', lang, label=escape(label))}\n{address_line}"
 
     title = t("status.title", lang, label=escape(label))
-    lines = [title]
+    lines = [title, address_line]
     for pos in snapshot.positions:
         lines.append("")
         lines.append(_pos_block(pos, lang))
@@ -49,7 +51,7 @@ def _event_body(event: PositionEvent, lang: str) -> str:
         return "\n".join(
             [
                 _kv(t("field.size", lang), _fmt_size(pos.size, pos.coin)),
-                _kv(t("field.notional", lang), _fmt_usd(pos.notional_usd)),
+                _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
                 _kv(t("field.entry", lang), _fmt_usd(pos.entry_price)),
                 _kv(t("field.leverage", lang), _fmt_leverage(pos)),
             ]
@@ -59,9 +61,9 @@ def _event_body(event: PositionEvent, lang: str) -> str:
         return "\n".join(
             [
                 _kv(t("field.size", lang), _fmt_size(prev.size, prev.coin)),
-                _kv(t("field.notional", lang), _fmt_usd(prev.notional_usd)),
+                _kv(t("field.amount", lang), _fmt_usd(prev.notional_usd)),
                 _kv(t("field.entry", lang), _fmt_usd(prev.entry_price)),
-                _kv(t("field.pnl", lang), _fmt_signed_usd(prev.unrealized_pnl)),
+                _kv(t("field.pnl", lang), _fmt_pnl(prev.unrealized_pnl)),
             ]
         )
 
@@ -79,7 +81,7 @@ def _event_body(event: PositionEvent, lang: str) -> str:
                         b=_fmt_size(pos.size, pos.coin),
                     ),
                 ),
-                _kv(t("field.notional", lang), _fmt_usd(pos.notional_usd)),
+                _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
                 _kv(t("field.delta", lang), f"{delta_str} ({pct_str})"),
                 _kv(t("field.leverage", lang), _fmt_leverage(pos)),
             ]
@@ -108,7 +110,7 @@ def _event_body(event: PositionEvent, lang: str) -> str:
                         b=f"{_side_label(pos.side, lang)} {_fmt_size(pos.size, pos.coin)}",
                     ),
                 ),
-                _kv(t("field.notional", lang), _fmt_usd(pos.notional_usd)),
+                _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
                 _kv(t("field.leverage", lang), _fmt_leverage(pos)),
             ]
         )
@@ -123,10 +125,10 @@ def _pos_block(pos: Position, lang: str) -> str:
         [
             f"<b>{escape(pos.coin)}</b> · {side_label}",
             _kv(t("field.size", lang), _fmt_size(pos.size, pos.coin)),
-            _kv(t("field.notional", lang), _fmt_usd(pos.notional_usd)),
+            _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
             _kv(t("field.entry", lang), _fmt_usd(pos.entry_price)),
             _kv(t("field.leverage", lang), _fmt_leverage(pos)),
-            _kv(t("field.pnl", lang), _fmt_signed_usd(pos.unrealized_pnl)),
+            _kv(t("field.pnl", lang), _fmt_pnl(pos.unrealized_pnl)),
         ]
     )
 
@@ -175,3 +177,14 @@ def _fmt_usd(amount: float) -> str:
 def _fmt_signed_usd(amount: float) -> str:
     sign = "+" if amount >= 0 else "-"
     return f"{sign}{_fmt_usd(abs(amount))}"
+
+
+def _fmt_pnl(amount: float) -> str:
+    """Format PnL with a colored indicator emoji so positive / negative is obvious at a glance."""
+    if amount > 0:
+        marker = "\U0001f7e2"  # 🟢
+    elif amount < 0:
+        marker = "\U0001f534"  # 🔴
+    else:
+        marker = "\u26aa"  # ⚪
+    return f"{marker} {_fmt_signed_usd(amount)}"

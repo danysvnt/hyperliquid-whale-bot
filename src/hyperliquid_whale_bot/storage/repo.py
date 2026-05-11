@@ -7,10 +7,17 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
-from ..models import Position, Side, TrackedWallet, WalletSnapshot
+from ..models import NotificationKind, Position, Side, TrackedWallet, WalletSnapshot
 from .db import Database
 
 ADDRESS_LEN = 42  # "0x" + 40 hex chars
+
+# Map enum value -> column name in tracked_wallets.
+_NOTIFY_COLUMN: dict[NotificationKind, str] = {
+    NotificationKind.POSITIONS: "notify_positions",
+    NotificationKind.TWAP: "notify_twap",
+    NotificationKind.LIMIT: "notify_limit",
+}
 
 
 def _now() -> str:
@@ -111,7 +118,8 @@ class Repository:
         async with self.db.connect() as conn:
             cursor = await conn.execute(
                 """
-                SELECT address, label, chat_id
+                SELECT address, label, chat_id,
+                       notify_positions, notify_twap, notify_limit
                 FROM tracked_wallets
                 WHERE chat_id = ?
                 ORDER BY id ASC
@@ -119,10 +127,49 @@ class Repository:
                 (chat_id,),
             )
             rows = await cursor.fetchall()
-            return [
-                TrackedWallet(address=row["address"], label=row["label"], chat_id=row["chat_id"])
-                for row in rows
-            ]
+            return [_row_to_wallet(row) for row in rows]
+
+    async def get_wallet(self, chat_id: int, address: str) -> TrackedWallet | None:
+        addr = _normalize_address(address)
+        async with self.db.connect() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT address, label, chat_id,
+                       notify_positions, notify_twap, notify_limit
+                FROM tracked_wallets
+                WHERE chat_id = ? AND address = ?
+                """,
+                (chat_id, addr),
+            )
+            row = await cursor.fetchone()
+            return _row_to_wallet(row) if row else None
+
+    async def update_wallet_label(self, chat_id: int, address: str, new_label: str) -> bool:
+        addr = _normalize_address(address)
+        async with self.db.connect() as conn:
+            cursor = await conn.execute(
+                "UPDATE tracked_wallets SET label = ? WHERE chat_id = ? AND address = ?",
+                (new_label.strip(), chat_id, addr),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def set_notification(
+        self,
+        chat_id: int,
+        address: str,
+        kind: NotificationKind,
+        enabled: bool,
+    ) -> bool:
+        addr = _normalize_address(address)
+        column = _NOTIFY_COLUMN[kind]
+        async with self.db.connect() as conn:
+            cursor = await conn.execute(
+                f"UPDATE tracked_wallets SET {column} = ? WHERE chat_id = ? AND address = ?",
+                (1 if enabled else 0, chat_id, addr),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
 
     async def count_wallets(self, chat_id: int) -> int:
         async with self.db.connect() as conn:
@@ -140,12 +187,19 @@ class Repository:
             rows = await cursor.fetchall()
             return [row["address"] for row in rows]
 
-    async def chats_subscribed_to(self, address: str) -> list[tuple[int, str]]:
-        """Return [(chat_id, label), ...] for every chat that tracks this address."""
+    async def chats_subscribed_to(
+        self, address: str, kind: NotificationKind = NotificationKind.POSITIONS
+    ) -> list[tuple[int, str]]:
+        """Return [(chat_id, label), ...] for chats subscribed AND opted in to `kind` events.
+
+        The watcher uses this to fan out only to chats that have the corresponding
+        notification toggle enabled for this wallet.
+        """
         addr = _normalize_address(address)
+        column = _NOTIFY_COLUMN[kind]
         async with self.db.connect() as conn:
             cursor = await conn.execute(
-                "SELECT chat_id, label FROM tracked_wallets WHERE address = ?",
+                f"SELECT chat_id, label FROM tracked_wallets WHERE address = ? AND {column} = 1",
                 (addr,),
             )
             rows = await cursor.fetchall()
@@ -205,6 +259,17 @@ class Repository:
 
 
 # ---------- helpers ----------
+
+
+def _row_to_wallet(row: Any) -> TrackedWallet:
+    return TrackedWallet(
+        address=row["address"],
+        label=row["label"],
+        chat_id=row["chat_id"],
+        notify_positions=bool(row["notify_positions"]),
+        notify_twap=bool(row["notify_twap"]),
+        notify_limit=bool(row["notify_limit"]),
+    )
 
 
 def _encode_position(p: Position) -> dict[str, Any]:

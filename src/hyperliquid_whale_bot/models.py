@@ -116,6 +116,14 @@ class PositionEvent:
     captured_at: datetime | None = None
 
 
+class NotificationKind(StrEnum):
+    """Per-wallet notification toggle (one flag per row in tracked_wallets)."""
+
+    POSITIONS = "positions"  # open/close/increase/decrease/leverage/side_flip
+    TWAP = "twap"  # phase-2: TWAP slices
+    LIMIT = "limit"  # phase-2: open/cancel/fill of limit orders
+
+
 @dataclass(frozen=True, slots=True)
 class TrackedWallet:
     """A wallet that some Telegram chat is subscribed to."""
@@ -123,3 +131,13 @@ class TrackedWallet:
     address: str  # 0x...
     label: str  # human-friendly nickname
     chat_id: int  # Telegram chat that owns this subscription
+    notify_positions: bool = True
+    notify_twap: bool = True
+    notify_limit: bool = True
+
+    def is_notification_enabled(self, kind: NotificationKind) -> bool:
+        if kind == NotificationKind.POSITIONS:
+            return self.notify_positions
+        if kind == NotificationKind.TWAP:
+            return self.notify_twap
+        return self.notify_limit
