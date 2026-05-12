@@ -76,7 +76,7 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
         if not await _ensure_access(message, settings):
             return
         lang = await repo.get_user_language(_chat_id(message))
-        await _send_help(message, lang)
+        await _send_help(message, lang, settings.max_wallets_per_user)
 
     @router.message(Command("add"))
     async def cmd_add(message: Message, state: FSMContext) -> None:
@@ -284,7 +284,7 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
         if not await _ensure_access(message, settings):
             return
         lang = await repo.get_user_language(_chat_id(message))
-        await _send_help(message, lang)
+        await _send_help(message, lang, settings.max_wallets_per_user)
 
     @router.message(StateFilter(None), F.text.in_(button_texts("kb.lang")))
     async def kb_lang(message: Message) -> None:
@@ -611,18 +611,44 @@ async def _do_add_wallet_via_bot(
     )
 
 
-async def _send_help(message: Message, lang: str) -> None:
+async def _send_help(message: Message, lang: str, limit: int) -> None:
+    text = build_help_text(lang, limit)
+    await message.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+def build_help_text(lang: str, limit: int) -> str:
     lines = [
         t("help.title", lang),
         "",
+        t("help.types_title", lang),
+        t("help.types_positions", lang),
+        t("help.types_twap", lang),
+        t("help.types_limit", lang),
+        "",
+        t("help.howto_title", lang),
+        t("help.howto_step1", lang),
+        t("help.howto_step2", lang),
+        t("help.howto_step3", lang),
+        t("help.howto_step4", lang),
+        "",
+        t("help.settings_note", lang),
+        "",
+        t("help.speed_title", lang),
+        t("help.speed_body", lang),
+        "",
+        t("help.limit_line", lang, limit=limit),
+        "",
+        t("help.commands_title", lang),
         t("help.add", lang),
         t("help.remove", lang),
         t("help.list", lang),
         t("help.status", lang),
         t("help.positions", lang),
         t("help.lang", lang),
+        "",
+        t("help.support_line", lang),
     ]
-    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    return "\n".join(lines)
 
 
 async def _show_wallet_list(

@@ -38,6 +38,81 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "uk": "Використовуй /help, щоб побачити список команд.",
     },
     "help.title": {
+        "ru": "❔ <b>Помощь</b>",
+        "en": "❔ <b>Help</b>",
+        "uk": "❔ <b>Допомога</b>",
+    },
+    "help.types_title": {
+        "ru": "<b>Типы уведомлений:</b>",
+        "en": "<b>Notification types:</b>",
+        "uk": "<b>Типи сповіщень:</b>",
+    },
+    "help.types_positions": {
+        "ru": "📊 <b>Позиции</b> — открытие / закрытие / разворот / добавление",
+        "en": "📊 <b>Positions</b> — open / close / flip / increase",
+        "uk": "📊 <b>Позиції</b> — відкриття / закриття / розворот / додавання",
+    },
+    "help.types_twap": {
+        "ru": "🧊 <b>TWAP</b> — старт, прогресс по слайсам, завершение / отмена",
+        "en": "🧊 <b>TWAP</b> — start, slice progress, finish / cancel",
+        "uk": "🧊 <b>TWAP</b> — старт, прогрес за слайсами, завершення / скасування",
+    },
+    "help.types_limit": {
+        "ru": "📌 <b>Лимитки</b> — размещение, отмена, начало исполнения · <i>скоро</i>",
+        "en": "📌 <b>Limit orders</b> — placement, cancel, fill start · <i>soon</i>",
+        "uk": "📌 <b>Лімітки</b> — розміщення, скасування, початок виконання · <i>скоро</i>",
+    },
+    "help.howto_title": {
+        "ru": "<b>Как добавить кошелёк:</b>",
+        "en": "<b>How to add a wallet:</b>",
+        "uk": "<b>Як додати гаманець:</b>",
+    },
+    "help.howto_step1": {
+        "ru": "1. Нажми 🐳 <b>Кошельки</b> → ➕ Добавить",
+        "en": "1. Tap 🐳 <b>Wallets</b> → ➕ Add",
+        "uk": "1. Натисни 🐳 <b>Гаманці</b> → ➕ Додати",
+    },
+    "help.howto_step2": {
+        "ru": "2. Вставь адрес <code>0x…</code>",
+        "en": "2. Paste an address <code>0x…</code>",
+        "uk": "2. Встав адресу <code>0x…</code>",
+    },
+    "help.howto_step3": {
+        "ru": "3. Дай ему имя",
+        "en": "3. Give it a name",
+        "uk": "3. Дай йому ім'я",
+    },
+    "help.howto_step4": {
+        "ru": "4. Выбери, какие уведомления включить",
+        "en": "4. Choose which notifications to enable",
+        "uk": "4. Обери, які сповіщення увімкнути",
+    },
+    "help.settings_note": {
+        "ru": "Настройки любого кошелька можно менять позже — тапни по нему в 🐳 <b>Кошельки</b>.",
+        "en": "Any wallet's settings can be changed later — tap it in 🐳 <b>Wallets</b>.",
+        "uk": "Налаштування будь-якого гаманця можна змінити пізніше — тапни по ньому в 🐳 <b>Гаманці</b>.",
+    },
+    "help.speed_title": {
+        "ru": "<b>Скорость уведомлений:</b>",
+        "en": "<b>Notification speed:</b>",
+        "uk": "<b>Швидкість сповіщень:</b>",
+    },
+    "help.speed_body": {
+        "ru": "Опрос идёт каждые 10 сек, порог алерта — одновременно ≥5% и ≥$5000 от размера позиции.",
+        "en": "Polling runs every 10s; alert fires only when both ≥5% and ≥$5000 of position size change.",
+        "uk": "Опитування — кожні 10 сек; алерт спрацьовує лише при одночасному ≥5% та ≥$5000 зміни позиції.",
+    },
+    "help.limit_line": {
+        "ru": "<b>Лимит:</b> до {limit} кошельков на пользователя.",
+        "en": "<b>Limit:</b> up to {limit} wallets per user.",
+        "uk": "<b>Ліміт:</b> до {limit} гаманців на користувача.",
+    },
+    "help.support_line": {
+        "ru": 'Автор и поддержка: <a href="https://t.me/danyseventeen">@danyseventeen</a>',
+        "en": 'Author & support: <a href="https://t.me/danyseventeen">@danyseventeen</a>',
+        "uk": 'Автор і підтримка: <a href="https://t.me/danyseventeen">@danyseventeen</a>',
+    },
+    "help.commands_title": {
         "ru": "<b>Команды:</b>",
         "en": "<b>Commands:</b>",
         "uk": "<b>Команди:</b>",
