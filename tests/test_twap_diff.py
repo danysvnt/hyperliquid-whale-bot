@@ -244,6 +244,42 @@ def test_rejects_invalid_bucket_step() -> None:
             raise AssertionError(f"expected ValueError for slice_pct_bucket={bad}")
 
 
+def test_historical_terminal_twap_is_silently_absorbed() -> None:
+    """A TWAP that's already terminal on first sighting emits NO events.
+
+    Real whales may have hundreds of historical TWAPs in `twapHistory`; we'd
+    drown the user on the first poll if we emitted STARTED + FINISHED for
+    every one. The diff must silently mark them as already-handled.
+    """
+    curr = _snap(
+        [
+            _state(twap_id=1, executed=100.0, status=TwapStatus.FINISHED),
+            _state(twap_id=2, executed=30.0, status=TwapStatus.TERMINATED),
+            _state(twap_id=3, executed=0.0, status=TwapStatus.ERROR),
+        ]
+    )
+    events, buckets = diff_twap_snapshots(previous=None, current=curr)
+    assert events == []
+    # Bookkeeping must record them as fully handled so a subsequent tick
+    # doesn't re-emit anything either.
+    for twap_id in (1, 2, 3):
+        assert buckets[twap_id].started_emitted is True
+        assert buckets[twap_id].terminal_emitted is True
+
+
+def test_active_twap_alongside_historical_terminal_one_only_emits_for_active() -> None:
+    """Mix of one currently-active TWAP and an old terminal one → only STARTED for the active."""
+    curr = _snap(
+        [
+            _state(twap_id=10, executed=0.0, status=TwapStatus.ACTIVATED),
+            _state(twap_id=11, executed=100.0, status=TwapStatus.FINISHED),
+        ]
+    )
+    events, _ = diff_twap_snapshots(previous=None, current=curr)
+    assert [e.kind for e in events] == [TwapEventKind.STARTED]
+    assert events[0].twap.twap_id == 10
+
+
 def test_started_then_slice_in_same_tick() -> None:
     """A new TWAP that already shows progress emits STARTED + SLICE in one tick."""
     curr = _snap([_state(executed=25.0)])

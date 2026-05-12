@@ -97,12 +97,25 @@ def diff_twap_snapshots(
 
         # CASE 1: TWAP is currently visible.
         if curr is not None:
-            # STARTED — first time we ever see this twap_id.
-            #
-            # If it appears already in a terminal state and we never saw an
-            # `activated` snapshot, we DO emit STARTED so the user is at least
-            # told the TWAP existed; the terminal event follows immediately.
-            if not bucket.started_emitted and prev is None:
+            is_first_sighting = prev is None and not bucket.started_emitted
+
+            # Silent bootstrap: if the very first time we observe this TWAP
+            # it's already terminal, the user does not care about a historical
+            # order that finished long before they added the wallet. Persist
+            # the flags so we never emit anything for it, but don't queue any
+            # events. Mainnet whales can have hundreds of historical TWAPs;
+            # without this gate the first poll would flood Telegram.
+            if is_first_sighting and curr.status.is_terminal:
+                bucket_states[twap_id] = TwapBucketState(
+                    twap_id=twap_id,
+                    last_emitted_bucket_pct=100,
+                    started_emitted=True,
+                    terminal_emitted=True,
+                )
+                continue
+
+            # STARTED — first time we ever see this twap_id AND it's still active.
+            if is_first_sighting:
                 started.append(
                     TwapEvent(
                         kind=TwapEventKind.STARTED,
