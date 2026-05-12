@@ -143,8 +143,8 @@ def test_finished_event_when_terminal_finished_with_full_progress() -> None:
     assert buckets[1].terminal_emitted is True
 
 
-def test_cancelled_event_when_terminated() -> None:
-    """status=terminated -> CANCELLED, regardless of progress."""
+def test_terminated_event_when_user_cancelled() -> None:
+    """status=terminated -> TERMINATED (split from generic CANCELLED), regardless of progress."""
     prev = _snap([_state(executed=20.0)])
     curr = _snap([_state(executed=20.0, status=TwapStatus.TERMINATED)])
     events, _ = diff_twap_snapshots(
@@ -156,8 +156,32 @@ def test_cancelled_event_when_terminated() -> None:
             )
         },
     )
-    terminal = [e for e in events if e.kind in (TwapEventKind.FINISHED, TwapEventKind.CANCELLED)]
-    assert [e.kind for e in terminal] == [TwapEventKind.CANCELLED]
+    terminal_kinds = {
+        TwapEventKind.FINISHED,
+        TwapEventKind.CANCELLED,
+        TwapEventKind.TERMINATED,
+        TwapEventKind.ERROR,
+    }
+    terminal = [e for e in events if e.kind in terminal_kinds]
+    assert [e.kind for e in terminal] == [TwapEventKind.TERMINATED]
+
+
+def test_error_event_when_hl_error() -> None:
+    """status=error -> ERROR (split from generic CANCELLED)."""
+    prev = _snap([_state(executed=20.0)])
+    curr = _snap([_state(executed=20.0, status=TwapStatus.ERROR)])
+    events, _ = diff_twap_snapshots(
+        previous=prev,
+        current=curr,
+        bucket_states={
+            1: TwapBucketState(
+                twap_id=1, last_emitted_bucket_pct=20, started_emitted=True
+            )
+        },
+    )
+    assert any(e.kind == TwapEventKind.ERROR for e in events)
+    assert all(e.kind != TwapEventKind.CANCELLED for e in events)
+    assert all(e.kind != TwapEventKind.TERMINATED for e in events)
 
 
 def test_cancelled_when_finished_with_partial_progress() -> None:

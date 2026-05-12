@@ -52,24 +52,48 @@ def _event(kind: TwapEventKind, twap: TwapState, bucket_pct: int = 0) -> TwapEve
 
 
 def test_format_twap_started_has_copyable_address_and_coin() -> None:
-    """STARTED event renders the address copy-on-tap and includes the coin."""
+    """STARTED event renders the address copy-on-tap, includes the coin, and shows TwapId."""
     event = _event(TwapEventKind.STARTED, _twap())
     text = format_event(event, label=LABEL, lang="en")
     assert f"<code>{ADDR.lower()}</code>" in text
-    assert "<b>BTC</b>" in text
-    assert "Started TWAP" in text  # EN header
-    assert "30 min" in text  # duration
+    assert "BTC" in text
+    assert "TWAP started" in text  # EN header per new format
+    assert "TwapId" in text  # new mockup surfaces the twap_id
+    # Slice count is minutes * 2 per HL protocol; check we render it.
+    assert "(60)" in text  # 30 minutes -> 60 slices
 
 
-def test_format_twap_slice_shows_bucket_percent() -> None:
-    """SLICE event shows the bucket_pct value (e.g. '30%') and from→to executed sizes."""
+def test_format_twap_started_with_mark_price_shows_usd_estimate() -> None:
+    """When mark_price_usd is provided, STARTED headline carries the ~$USD approximation."""
+    twap = _twap(total=2.0)  # 2 BTC * 50000 = $100K
+    event = TwapEvent(
+        kind=TwapEventKind.STARTED,
+        address=ADDR,
+        twap=twap,
+        progress_pct=0.0,
+        captured_at=datetime.now(UTC),
+        mark_price_usd=50_000.0,
+    )
+    text = format_event(event, label=LABEL, lang="en")
+    assert "~$100.00K" in text
+
+
+def test_format_twap_started_without_mark_price_omits_usd_estimate() -> None:
+    """Without mark_price_usd, STARTED headline must NOT show a ~$ value."""
+    event = _event(TwapEventKind.STARTED, _twap())  # mark_price_usd=None by default
+    text = format_event(event, label=LABEL, lang="en")
+    assert "~$" not in text
+
+
+def test_format_twap_slice_shows_bucket_percent_and_progress_bar() -> None:
+    """SLICE event shows the bucket_pct value (e.g. '30%') and renders a progress bar."""
     twap = _twap(total=10.0, executed=3.0, executed_usd=30_000.0)
     event = _event(TwapEventKind.SLICE, twap, bucket_pct=30)
     text = format_event(event, label=LABEL, lang="ru")
     assert "30%" in text
-    # The 'from → to' arrow comes from i18n field.from_to. Both endpoints visible.
-    assert "→" in text
-    assert "🧊" in text  # twap header emoji
+    assert "🔸" in text  # new slice header emoji
+    # The progress bar is 10 unicode block slots, 30% filled.
+    assert "███░░░░░░░" in text
 
 
 def test_format_twap_finished_uses_filled_label_and_shows_amount() -> None:
@@ -108,3 +132,37 @@ def test_format_twap_event_html_escapes_coin() -> None:
     text = format_event(event, label=LABEL, lang="en")
     assert "&lt;bad&gt;" in text
     assert "<bad>" not in text.replace("&lt;bad&gt;", "")
+
+
+def test_format_twap_terminated_uses_terminated_header() -> None:
+    """TERMINATED renders the localized 'terminated' header — distinct from CANCELLED."""
+    twap = _twap(total=10.0, executed=3.5, executed_usd=10_000.0, status=TwapStatus.TERMINATED)
+    event = _event(TwapEventKind.TERMINATED, twap)
+    for lang, expected_header in (
+        ("en", "TWAP terminated"),
+        ("ru", "TWAP остановлен"),
+        ("uk", "TWAP зупинено"),
+    ):
+        text = format_event(event, label=LABEL, lang=lang)
+        assert expected_header in text, f"missing TERMINATED header for {lang!r}"
+
+
+def test_format_twap_error_uses_error_header() -> None:
+    """ERROR renders the localized 'error' header — distinct from TERMINATED and CANCELLED."""
+    twap = _twap(total=10.0, executed=0.0, executed_usd=0.0, status=TwapStatus.ERROR)
+    event = _event(TwapEventKind.ERROR, twap)
+    for lang, expected_header in (
+        ("en", "TWAP error"),
+        ("ru", "TWAP — ошибка"),
+        ("uk", "TWAP — помилка"),
+    ):
+        text = format_event(event, label=LABEL, lang=lang)
+        assert expected_header in text, f"missing ERROR header for {lang!r}"
+
+
+def test_format_twap_event_footer_links_to_explorer_and_author() -> None:
+    """All TWAP messages carry the explorer + author footer."""
+    event = _event(TwapEventKind.STARTED, _twap())
+    text = format_event(event, label=LABEL, lang="en")
+    assert "hypurrscan.io/address/" in text
+    assert "danyseventeen" in text

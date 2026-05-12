@@ -194,12 +194,20 @@ class WalletTwapSnapshot:
 
 
 class TwapEventKind(StrEnum):
-    """Type of TWAP change detected by the twap-diff engine."""
+    """Type of TWAP change detected by the twap-diff engine.
+
+    `TERMINATED` and `ERROR` are split from `CANCELLED` so we can render them
+    differently — terminated = user-cancelled, error = HL-side failure. `CANCELLED`
+    remains for the "TWAP disappeared between snapshots" fallback and for
+    `finished` with partial progress (rare HL edge case).
+    """
 
     STARTED = "twap_started"
     SLICE = "twap_slice"
     FINISHED = "twap_finished"
     CANCELLED = "twap_cancelled"
+    TERMINATED = "twap_terminated"
+    ERROR = "twap_error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +225,11 @@ class TwapEvent:
     # (e.g. 10, 20, 30, ...). Lets formatters say "10%", "20%", etc. without
     # recomputing from progress_pct.
     bucket_pct: int = 0
+
+    # For STARTED events: mark price of `coin` at the moment the TWAP started.
+    # Used to render an approximate USD size in the STARTED message. None when
+    # the watcher couldn't fetch a mark price (the message falls back to "By market").
+    mark_price_usd: float | None = None
 
     @property
     def coin(self) -> str:

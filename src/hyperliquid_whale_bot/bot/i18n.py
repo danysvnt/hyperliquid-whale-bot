@@ -187,26 +187,143 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "en": "🔄 Flipped side",
         "uk": "🔄 Перевернув позицію",
     },
-    # --- TWAP event headers ---
+    # --- TWAP event headers (verb + side + coin + label appended at runtime) ---
     "event.twap_started": {
-        "ru": "🧊 Запустил TWAP",
-        "en": "🧊 Started TWAP",
-        "uk": "🧊 Запустив TWAP",
+        "ru": "⏳ TWAP запущен",
+        "en": "⏳ TWAP started",
+        "uk": "⏳ TWAP запущено",
     },
     "event.twap_slice": {
-        "ru": "🧊 TWAP-прогресс",
-        "en": "🧊 TWAP progress",
-        "uk": "🧊 TWAP-прогрес",
+        "ru": "🔸 TWAP слайс",
+        "en": "🔸 TWAP slice",
+        "uk": "🔸 TWAP слайс",
     },
     "event.twap_finished": {
-        "ru": "🧊 TWAP исполнен",
-        "en": "🧊 TWAP filled",
-        "uk": "🧊 TWAP виконано",
+        "ru": "🟢 TWAP исполнен",
+        "en": "🟢 TWAP filled",
+        "uk": "🟢 TWAP виконано",
     },
     "event.twap_cancelled": {
-        "ru": "🧊 TWAP отменён",
-        "en": "🧊 TWAP cancelled",
-        "uk": "🧊 TWAP скасовано",
+        "ru": "⚪ TWAP отменён",
+        "en": "⚪ TWAP cancelled",
+        "uk": "⚪ TWAP скасовано",
+    },
+    "event.twap_terminated": {
+        "ru": "🛑 TWAP остановлен",
+        "en": "🛑 TWAP terminated",
+        "uk": "🛑 TWAP зупинено",
+    },
+    "event.twap_error": {
+        "ru": "🚨 TWAP — ошибка",
+        "en": "🚨 TWAP error",
+        "uk": "🚨 TWAP — помилка",
+    },
+    # --- TWAP body labels (full set used by formatter mockups) ---
+    "twap.label.market": {"ru": "По рынку", "en": "By market", "uk": "За ринком"},
+    "twap.label.total_size": {
+        "ru": "📏 Общий размер",
+        "en": "📏 Total size",
+        "uk": "📏 Загальний розмір",
+    },
+    "twap.label.price": {"ru": "💵 Цена", "en": "💵 Price", "uk": "💵 Ціна"},
+    "twap.label.frequency": {
+        "ru": "🔁 Частота",
+        "en": "🔁 Frequency",
+        "uk": "🔁 Частота",
+    },
+    "twap.label.start": {"ru": "🕐 Старт", "en": "🕐 Start", "uk": "🕐 Старт"},
+    "twap.label.end": {"ru": "🏁 Конец", "en": "🏁 End", "uk": "🏁 Кінець"},
+    "twap.label.reduce_only": {
+        "ru": "🔒 Только закрытие",
+        "en": "🔒 Reduce-only",
+        "uk": "🔒 Тільки закриття",
+    },
+    "twap.label.twap_id": {"ru": "🆔 TwapId", "en": "🆔 TwapId", "uk": "🆔 TwapId"},
+    "twap.label.executed_short": {
+        "ru": "🔹 Исполнено",
+        "en": "🔹 Filled",
+        "uk": "🔹 Виконано",
+    },
+    "twap.label.progress_short": {
+        "ru": "📊 Прогресс",
+        "en": "📊 Progress",
+        "uk": "📊 Прогрес",
+    },
+    "twap.label.time": {"ru": "🕒 Время", "en": "🕒 Time", "uk": "🕒 Час"},
+    "twap.label.finished_at": {
+        "ru": "🕒 Завершён",
+        "en": "🕒 Finished",
+        "uk": "🕒 Завершено",
+    },
+    "twap.label.cancelled_at": {
+        "ru": "🕒 Отменён",
+        "en": "🕒 Cancelled",
+        "uk": "🕒 Скасовано",
+    },
+    "twap.label.terminated_at": {
+        "ru": "🕒 Остановлен",
+        "en": "🕒 Terminated",
+        "uk": "🕒 Зупинено",
+    },
+    "twap.label.error_at": {
+        "ru": "🕒 Ошибка",
+        "en": "🕒 Error",
+        "uk": "🕒 Помилка",
+    },
+    "twap.label.duration": {
+        "ru": "⏱ Длительность",
+        "en": "⏱ Duration",
+        "uk": "⏱ Тривалість",
+    },
+    "twap.label.executed_full": {
+        "ru": "✅ Исполнено",
+        "en": "✅ Filled",
+        "uk": "✅ Виконано",
+    },
+    "twap.label.executed_amount": {
+        "ru": "💰 Сумма исполнения",
+        "en": "💰 Filled amount",
+        "uk": "💰 Сума виконання",
+    },
+    "twap.label.executed_stopped": {
+        "ru": "🛑 Исполнено",
+        "en": "🛑 Filled",
+        "uk": "🛑 Виконано",
+    },
+    "twap.label.progress_at_stop": {
+        "ru": "📊 Прогресс на момент остановки",
+        "en": "📊 Progress at stop",
+        "uk": "📊 Прогрес на момент зупинки",
+    },
+    "twap.label.progress_at_cancel": {
+        "ru": "📊 Прогресс на момент отмены",
+        "en": "📊 Progress at cancel",
+        "uk": "📊 Прогрес на момент скасування",
+    },
+    "twap.label.progress_at_error": {
+        "ru": "📊 Прогресс на момент ошибки",
+        "en": "📊 Progress at error",
+        "uk": "📊 Прогрес на момент помилки",
+    },
+    "twap.value.yes": {"ru": "Да", "en": "Yes", "uk": "Так"},
+    "twap.value.no": {"ru": "Нет", "en": "No", "uk": "Ні"},
+    "twap.value.short_side": {"ru": "🔴 SHORT", "en": "🔴 SHORT", "uk": "🔴 SHORT"},
+    "twap.value.long_side": {"ru": "🟢 LONG", "en": "🟢 LONG", "uk": "🟢 LONG"},
+    "twap.value.usd_approx": {
+        "ru": "~{usd}",
+        "en": "~{usd}",
+        "uk": "~{usd}",
+    },
+    # --- Notification footer (used by all event messages) ---
+    "footer.explorer": {
+        "ru": "🔍 <a href=\"{url}\">Проводник</a>",
+        "en": "🔍 <a href=\"{url}\">Explorer</a>",
+        "uk": "🔍 <a href=\"{url}\">Провідник</a>",
+    },
+    "footer.author": {
+        "ru": "By <a href=\"https://t.me/danyseventeen\">@danyseventeen</a>",
+        "en": "By <a href=\"https://t.me/danyseventeen\">@danyseventeen</a>",
+        "uk": "By <a href=\"https://t.me/danyseventeen\">@danyseventeen</a>",
     },
     # --- TWAP body fields ---
     "twap.field.total": {"ru": "Объём", "en": "Total", "uk": "Обсяг"},

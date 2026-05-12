@@ -26,6 +26,7 @@ from ..models import (
     NotificationKind,
     PositionEvent,
     TwapEvent,
+    TwapEventKind,
     WalletSnapshot,
     WalletTwapSnapshot,
 )
@@ -143,6 +144,36 @@ class Watcher:
                 except Exception as exc:  # noqa: BLE001
                     log.error("watcher.twap_handle_failed", address=address, error=repr(exc))
 
+    async def _enrich_started_events(self, events: list[TwapEvent]) -> list[TwapEvent]:
+        """Attach mark prices to STARTED events. Other event kinds pass through unchanged."""
+        out: list[TwapEvent] = []
+        for ev in events:
+            if ev.kind != TwapEventKind.STARTED:
+                out.append(ev)
+                continue
+            try:
+                price = await self._client.fetch_mark_price(ev.twap.coin)
+            except Exception as exc:  # noqa: BLE001 -- never let enrichment fail dispatch
+                log.warning(
+                    "watcher.mark_price_failed",
+                    coin=ev.twap.coin,
+                    error=repr(exc),
+                )
+                price = None
+            out.append(
+                TwapEvent(
+                    kind=ev.kind,
+                    address=ev.address,
+                    twap=ev.twap,
+                    previous=ev.previous,
+                    progress_pct=ev.progress_pct,
+                    captured_at=ev.captured_at,
+                    bucket_pct=ev.bucket_pct,
+                    mark_price_usd=price,
+                )
+            )
+        return out
+
     async def _handle_position_snapshot(self, snapshot: WalletSnapshot) -> None:
         previous = await self._repo.get_snapshot(snapshot.address)
         events = diff_snapshots(
@@ -191,7 +222,12 @@ class Watcher:
         if not chats:
             return
 
-        for event in events:
+        # Enrich STARTED events with a mark price so formatters can render an
+        # approximate USD size. Best-effort: if the price fetch fails, the
+        # formatter falls back to "By market" without the USD line.
+        enriched_events = await self._enrich_started_events(events)
+
+        for event in enriched_events:
             for chat_id, label in chats:
                 await self._out.put(DispatchedEvent(chat_id=chat_id, label=label, event=event))
         log.info(
