@@ -6,11 +6,14 @@ Compares two TWAP-state snapshots of a wallet and emits lifecycle events:
               (we observed it now, but not in the previous snapshot).
   SLICE     — TWAP's executed_size crossed a new percent bucket
               (10%, 20%, ..., 90%).
-  FINISHED  — TWAP transitioned to a terminal `finished` status AND
-              progress >= ~99% (treat ≥99 as "fully filled").
-  CANCELLED — TWAP transitioned to a terminal `terminated` / `error` status,
-              OR `finished` with progress < 99% (rare: filled less than total),
-              OR the TWAP simply disappeared from history between snapshots.
+  FINISHED   — TWAP transitioned to terminal `finished` status AND
+               progress >= ~99% (treat ≥99 as "fully filled").
+  TERMINATED — TWAP transitioned to terminal `terminated` status
+               (user-cancelled, regardless of progress).
+  ERROR      — TWAP transitioned to terminal `error` status
+               (HL-side failure, regardless of progress).
+  CANCELLED  — `finished` with progress < 99% (rare: filled less than total),
+               OR the TWAP simply disappeared from history between snapshots.
 
 Design goals:
 - Pure: trivial unit tests, no DB / network.
@@ -150,15 +153,9 @@ def diff_twap_snapshots(
                     terminal_emitted=bucket.terminal_emitted,
                 )
 
-            # FINISHED / CANCELLED.
+            # Terminal: FINISHED / TERMINATED / ERROR / CANCELLED (partial fill).
             if curr.status.is_terminal and not bucket.terminal_emitted:
-                if (
-                    curr.status == TwapStatus.FINISHED
-                    and curr.progress_pct >= FINISHED_PROGRESS_FLOOR_PCT
-                ):
-                    kind = TwapEventKind.FINISHED
-                else:
-                    kind = TwapEventKind.CANCELLED
+                kind = _terminal_kind(curr.status, curr.progress_pct)
                 terminal.append(
                     TwapEvent(
                         kind=kind,
@@ -200,6 +197,28 @@ def diff_twap_snapshots(
 
     events = started + sliced + terminal
     return events, bucket_states
+
+
+def _terminal_kind(status: TwapStatus, progress_pct: float) -> TwapEventKind:
+    """Map terminal HL status → user-facing TwapEventKind.
+
+    - FINISHED with full progress       → FINISHED (success, 100% filled)
+    - FINISHED with partial progress    → CANCELLED (rare: marked finished but underfilled)
+    - TERMINATED (user-cancelled)       → TERMINATED
+    - ERROR (HL-side failure)           → ERROR
+    """
+    if status == TwapStatus.FINISHED:
+        return (
+            TwapEventKind.FINISHED
+            if progress_pct >= FINISHED_PROGRESS_FLOOR_PCT
+            else TwapEventKind.CANCELLED
+        )
+    if status == TwapStatus.TERMINATED:
+        return TwapEventKind.TERMINATED
+    if status == TwapStatus.ERROR:
+        return TwapEventKind.ERROR
+    # Defensive: any other terminal status falls back to CANCELLED.
+    return TwapEventKind.CANCELLED
 
 
 def _slice_events(

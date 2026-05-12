@@ -12,6 +12,7 @@ For our use case we only need the public `Info` endpoints (no API key required):
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,6 +29,11 @@ from ..models import (
 )
 
 log = get_logger(__name__)
+
+# Mark-price cache TTL. The watcher only needs an approximate price to render
+# the STARTED TWAP USD estimate; 60s is far below the volatility horizon we
+# care about and well above the poll interval.
+_MARK_PRICE_CACHE_TTL_SECONDS = 60.0
 
 
 class HyperliquidClient:
@@ -46,6 +52,11 @@ class HyperliquidClient:
         log.info("hl_client.connecting", network=network, base_url=base_url)
         self._info = Info(base_url=base_url, skip_ws=True)
         self._network = network
+        # Per-coin mark-price cache: coin -> (price_usd, fetched_at_monotonic).
+        # Populated by `fetch_mark_price`; never expires explicitly — entries
+        # are simply refetched once older than `_MARK_PRICE_CACHE_TTL_SECONDS`.
+        self._mark_price_cache: dict[str, tuple[float, float]] = {}
+        self._mark_price_lock = asyncio.Lock()
 
     @property
     def network(self) -> str:
@@ -55,6 +66,35 @@ class HyperliquidClient:
         """Return the current open-perps snapshot for a wallet."""
         raw = await asyncio.to_thread(self._info.user_state, address)
         return _snapshot_from_user_state(address, raw)
+
+    async def fetch_mark_price(self, coin: str) -> float | None:
+        """Return current mark price for `coin`, or None if unknown.
+
+        Cached for `_MARK_PRICE_CACHE_TTL_SECONDS`. Cache miss reads the full
+        `metaAndAssetCtxs` payload (cheap, ~1 HTTP call) and populates every
+        coin at once — so subsequent lookups within the TTL window hit memory.
+        """
+        if not coin:
+            return None
+        now = time.monotonic()
+        cached = self._mark_price_cache.get(coin)
+        if cached is not None and now - cached[1] < _MARK_PRICE_CACHE_TTL_SECONDS:
+            return cached[0]
+
+        async with self._mark_price_lock:
+            # Re-check after acquiring the lock — a concurrent call may have
+            # populated the cache while we were waiting.
+            cached = self._mark_price_cache.get(coin)
+            if cached is not None and now - cached[1] < _MARK_PRICE_CACHE_TTL_SECONDS:
+                return cached[0]
+            try:
+                raw = await asyncio.to_thread(self._info.meta_and_asset_ctxs)
+            except Exception as exc:  # noqa: BLE001 -- best-effort, never fail upstream caller
+                log.warning("hl_client.mark_price_fetch_failed", error=repr(exc))
+                return None
+            _populate_mark_price_cache(self._mark_price_cache, raw)
+            entry = self._mark_price_cache.get(coin)
+            return entry[0] if entry is not None else None
 
     async def fetch_twap_state(self, address: str) -> WalletTwapSnapshot:
         """Return the current TWAP-orders snapshot for a wallet.
@@ -193,6 +233,43 @@ def _twap_snapshot_from_raw(
         twaps=tuple(twaps),
         captured_at=datetime.now(UTC),
     )
+
+
+def _populate_mark_price_cache(
+    cache: dict[str, tuple[float, float]],
+    raw: Any,
+) -> None:
+    """Fill `cache` with mark prices from a `metaAndAssetCtxs` response.
+
+    Response shape (perp universe, abridged):
+        [
+          {"universe": [{"name": "BTC", ...}, {"name": "ETH", ...}, ...]},
+          [{"markPx": "...", ...}, {"markPx": "...", ...}, ...]
+        ]
+    The two top-level lists are aligned by index — `universe[i]` describes the
+    same asset as `ctx[i]`. We map coin name → markPx.
+    """
+    if not isinstance(raw, list) or len(raw) < 2:
+        return
+    meta, ctxs = raw[0], raw[1]
+    if not isinstance(meta, dict) or not isinstance(ctxs, list):
+        return
+    universe = meta.get("universe")
+    if not isinstance(universe, list):
+        return
+    now = time.monotonic()
+    for asset, ctx in zip(universe, ctxs, strict=False):
+        if not isinstance(asset, dict) or not isinstance(ctx, dict):
+            continue
+        coin = str(asset.get("name", ""))
+        if not coin:
+            continue
+        try:
+            price = float(ctx.get("markPx") or 0)
+        except (TypeError, ValueError):
+            continue
+        if price > 0:
+            cache[coin] = (price, now)
 
 
 def _snapshot_from_user_state(address: str, raw: dict[str, Any]) -> WalletSnapshot:
