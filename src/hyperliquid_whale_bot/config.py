@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -51,6 +51,12 @@ class Settings(BaseSettings):
         ge=0.0,
         description="Min USD notional change in position to trigger an alert",
     )
+    twap_slice_pct_bucket: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Step (in percent) between TWAP SLICE notifications. 10 = notify at 10%, 20%, ..., 90%.",
+    )
 
     # --- Bot policy ---
     max_wallets_per_user: int = Field(
@@ -59,7 +65,11 @@ class Settings(BaseSettings):
         le=100,
         description="Max number of wallets a single Telegram user can track",
     )
-    whitelist_chat_ids: list[int] = Field(
+    # `NoDecode` tells pydantic-settings to skip JSON-decoding this list and
+    # hand the raw env-var string to the `_parse_chat_ids` validator below.
+    # Without it, `WHITELIST_CHAT_IDS=` (empty) raises a JSONDecodeError before
+    # the validator ever runs (regression introduced in pydantic-settings 2.x).
+    whitelist_chat_ids: Annotated[list[int], NoDecode] = Field(
         default_factory=list,
         description="If non-empty, only these chat_ids may use the bot",
     )

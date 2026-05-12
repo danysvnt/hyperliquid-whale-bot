@@ -37,6 +37,24 @@ CREATE TABLE IF NOT EXISTS position_snapshots (
     snapshot_json TEXT NOT NULL,
     captured_at   TEXT NOT NULL
 );
+
+-- TWAP-order state, persisted per (address, twap_id).
+-- `state_json` is a serialized TwapState; `last_emitted_bucket_pct` /
+-- `started_emitted` / `terminal_emitted` track which SLICE bucket and lifecycle
+-- events have already been pushed to Telegram so we don't double-notify after
+-- a restart.
+CREATE TABLE IF NOT EXISTS twap_states (
+    address                   TEXT NOT NULL,
+    twap_id                   INTEGER NOT NULL,
+    state_json                TEXT NOT NULL,
+    last_emitted_bucket_pct   INTEGER NOT NULL DEFAULT 0,
+    started_emitted           INTEGER NOT NULL DEFAULT 0,
+    terminal_emitted          INTEGER NOT NULL DEFAULT 0,
+    captured_at               TEXT NOT NULL,
+    PRIMARY KEY(address, twap_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_twap_states_address ON twap_states(address);
 """
 
 # Idempotent migrations for older DBs that lack the toggle columns.

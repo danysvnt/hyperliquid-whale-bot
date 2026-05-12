@@ -1,11 +1,16 @@
-"""Position watcher — periodically polls all tracked wallets and emits events.
+"""Position + TWAP watcher — periodically polls all tracked wallets and emits events.
 
 Architecture:
 - Polls every configured interval (default 10 sec).
-- For each unique address (across all chats), calls HL client → fetches snapshot.
-- Loads previous snapshot from storage, computes diff with thresholds.
-- Stores the new snapshot.
-- Pushes (chat_id, event, label) tuples into an asyncio queue for the bot to consume.
+- For each unique address (across all chats), fetches in parallel:
+    * `fetch_snapshot`     -> WalletSnapshot (perp positions)
+    * `fetch_twap_state`   -> WalletTwapSnapshot (TWAP orders)
+  Both calls run via `asyncio.gather(return_exceptions=True)` so one failing
+  endpoint does not silence the other.
+- Loads previous snapshots from storage, computes both diffs.
+- Persists new snapshots and per-twap bucket state.
+- Pushes (chat_id, event, label) tuples into an asyncio queue — `event` is
+  either a `PositionEvent` or a `TwapEvent`. Subscribers branch on isinstance.
 - Polls in parallel (with concurrency cap) to spread load over the poll interval.
 """
 
@@ -17,8 +22,15 @@ from dataclasses import dataclass
 from ..config import Settings
 from ..diff import diff_snapshots
 from ..logging_setup import get_logger
-from ..models import NotificationKind, PositionEvent, WalletSnapshot
+from ..models import (
+    NotificationKind,
+    PositionEvent,
+    TwapEvent,
+    WalletSnapshot,
+    WalletTwapSnapshot,
+)
 from ..storage import Repository
+from ..twap_diff import diff_twap_snapshots
 from .client import HyperliquidClient
 
 log = get_logger(__name__)
@@ -29,11 +41,17 @@ _DEFAULT_CONCURRENCY = 8
 
 @dataclass(frozen=True, slots=True)
 class DispatchedEvent:
-    """A position event paired with the chat that should receive it."""
+    """An event paired with the chat that should receive it.
+
+    `event` is a union: `PositionEvent` for perp-position changes (open/close/
+    increase/decrease/leverage/side_flip), or `TwapEvent` for TWAP lifecycle
+    changes (started/slice/finished/cancelled). The notifier branches on
+    `isinstance(event, ...)`.
+    """
 
     chat_id: int
     label: str
-    event: PositionEvent
+    event: PositionEvent | TwapEvent
 
 
 class Watcher:
@@ -61,6 +79,7 @@ class Watcher:
             interval_seconds=self._settings.watcher_poll_interval_seconds,
             pct_threshold=self._settings.alert_pct_threshold,
             usd_threshold=self._settings.alert_usd_threshold,
+            twap_slice_pct_bucket=self._settings.twap_slice_pct_bucket,
         )
         while not self._stop.is_set():
             try:
@@ -89,18 +108,42 @@ class Watcher:
 
     async def _poll_one(self, address: str) -> None:
         async with self._semaphore:
-            try:
-                snapshot = await self._client.fetch_snapshot(address)
-            except Exception as exc:  # noqa: BLE001 -- one bad wallet must not stop polling others
-                log.warning("watcher.fetch_failed", address=address, error=repr(exc))
-                return
+            # Fetch positions + TWAP state in parallel; one failure must not
+            # cancel the sibling. `return_exceptions=True` makes that explicit.
+            results = await asyncio.gather(
+                self._client.fetch_snapshot(address),
+                self._client.fetch_twap_state(address),
+                return_exceptions=True,
+            )
+            snapshot_result, twap_result = results
 
-            try:
-                await self._handle_snapshot(snapshot)
-            except Exception as exc:  # noqa: BLE001 -- DB / dispatch errors on one wallet must not cancel sibling polls in this tick
-                log.error("watcher.handle_failed", address=address, error=repr(exc))
+            # Handle positions branch.
+            if isinstance(snapshot_result, BaseException):
+                log.warning(
+                    "watcher.fetch_failed",
+                    address=address,
+                    error=repr(snapshot_result),
+                )
+            else:
+                try:
+                    await self._handle_position_snapshot(snapshot_result)
+                except Exception as exc:  # noqa: BLE001
+                    log.error("watcher.handle_failed", address=address, error=repr(exc))
 
-    async def _handle_snapshot(self, snapshot: WalletSnapshot) -> None:
+            # Handle TWAP branch.
+            if isinstance(twap_result, BaseException):
+                log.warning(
+                    "watcher.twap_fetch_failed",
+                    address=address,
+                    error=repr(twap_result),
+                )
+            else:
+                try:
+                    await self._handle_twap_snapshot(twap_result)
+                except Exception as exc:  # noqa: BLE001
+                    log.error("watcher.twap_handle_failed", address=address, error=repr(exc))
+
+    async def _handle_position_snapshot(self, snapshot: WalletSnapshot) -> None:
         previous = await self._repo.get_snapshot(snapshot.address)
         events = diff_snapshots(
             previous=previous,
@@ -114,7 +157,6 @@ class Watcher:
             return
 
         # Fan out only to chats that have the 'positions' notification toggle ON.
-        # (All current events are position events; TWAP/limit are phase 2.)
         chats = await self._repo.chats_subscribed_to(
             snapshot.address, kind=NotificationKind.POSITIONS
         )
@@ -126,6 +168,34 @@ class Watcher:
                 await self._out.put(DispatchedEvent(chat_id=chat_id, label=label, event=event))
         log.info(
             "watcher.events_emitted",
+            address=snapshot.address,
+            count=len(events),
+            chats=len(chats),
+        )
+
+    async def _handle_twap_snapshot(self, snapshot: WalletTwapSnapshot) -> None:
+        previous = await self._repo.get_twap_snapshot(snapshot.address)
+        bucket_states = await self._repo.get_twap_bucket_states(snapshot.address)
+        events, new_bucket_states = diff_twap_snapshots(
+            previous=previous,
+            current=snapshot,
+            bucket_states=bucket_states,
+            slice_pct_bucket=self._settings.twap_slice_pct_bucket,
+        )
+        await self._repo.save_twap_snapshot_and_buckets(snapshot, new_bucket_states)
+
+        if not events:
+            return
+
+        chats = await self._repo.chats_subscribed_to(snapshot.address, kind=NotificationKind.TWAP)
+        if not chats:
+            return
+
+        for event in events:
+            for chat_id, label in chats:
+                await self._out.put(DispatchedEvent(chat_id=chat_id, label=label, event=event))
+        log.info(
+            "watcher.twap_events_emitted",
             address=snapshot.address,
             count=len(events),
             chats=len(chats),
