@@ -40,16 +40,22 @@ def test_button_texts_returns_all_localized_variants() -> None:
         assert t(kb_key, "uk") in texts
 
 
-def test_explorer_keyboard_has_four_buttons_including_coinmarketman() -> None:
-    """Each wallet-related reply must surface 4 explorer links: Hypurrscan, Hyperdash, HL, CMM."""
+def test_explorer_keyboard_has_three_buttons_without_hyperliquid() -> None:
+    """Wallet-related replies surface 3 explorer links: Hypurrscan, Hyperdash, CMM.
+
+    Hyperliquid app explorer was removed because it doesn't expose per-wallet
+    position context. Hyperdash now uses the `/address/` path (the previous
+    `/trader/` 404'd).
+    """
     kb = explorer_keyboard("0x" + "ab" * 20, "ru")
     flat = [btn for row in kb.inline_keyboard for btn in row]
-    assert len(flat) == 4, "expected 4 explorer buttons"
+    assert len(flat) == 3, "expected 3 explorer buttons"
 
     urls = {btn.url for btn in flat}
-    assert any("hypurrscan.io" in (u or "") for u in urls)
-    assert any("hyperdash.info" in (u or "") for u in urls)
-    assert any("app.hyperliquid.xyz" in (u or "") for u in urls)
+    assert any("hypurrscan.io/address/" in (u or "") for u in urls)
+    assert any("hyperdash.info/address/" in (u or "") for u in urls)
+    assert not any("hyperdash.info/trader/" in (u or "") for u in urls)
+    assert not any("app.hyperliquid.xyz" in (u or "") for u in urls)
     assert any(u == "https://app.coinmarketman.com/" for u in urls)
 
 

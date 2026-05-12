@@ -46,6 +46,52 @@ def format_snapshot(snapshot: WalletSnapshot, label: str, lang: str) -> str:
     return "\n".join(lines)
 
 
+# Telegram message limit is 4096 chars; leave headroom for HTML overhead.
+_TG_MSG_SOFT_LIMIT = 3900
+
+
+def format_multi_snapshot(
+    items: list[tuple[str, WalletSnapshot]], lang: str
+) -> list[str]:
+    """Render the open positions of multiple wallets into one or more messages.
+
+    Returns a list of HTML strings; each fits within `_TG_MSG_SOFT_LIMIT`. The
+    title is repeated on every chunk so a user who only sees the second message
+    still gets context.
+    """
+    title = t("positions.summary_title", lang)
+    chunks: list[str] = []
+    current = [title]
+    current_len = len(title)
+
+    for label, snap in items:
+        block = _wallet_block(label, snap, lang)
+        # +2 for the blank-line separator we insert before each wallet block.
+        if current_len + len(block) + 2 > _TG_MSG_SOFT_LIMIT and len(current) > 1:
+            chunks.append("\n".join(current))
+            current = [title, "", block]
+            current_len = len(title) + 2 + len(block)
+        else:
+            current.append("")
+            current.append(block)
+            current_len += 2 + len(block)
+
+    chunks.append("\n".join(current))
+    return chunks
+
+
+def _wallet_block(label: str, snap: WalletSnapshot, lang: str) -> str:
+    header = f"🐳 <b>{escape(label)}</b>"
+    address_line = f"<code>{snap.address.lower()}</code>"
+    if not snap.positions:
+        return "\n".join([header, address_line, t("positions.empty_wallet", lang)])
+    lines = [header, address_line]
+    for pos in snap.positions:
+        lines.append("")
+        lines.append(_pos_block(pos, lang))
+    return "\n".join(lines)
+
+
 # --- internal helpers ------------------------------------------------------
 
 

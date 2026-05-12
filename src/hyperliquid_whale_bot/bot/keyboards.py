@@ -32,10 +32,11 @@ def main_reply_keyboard(lang: str) -> ReplyKeyboardMarkup:
 
 
 def explorer_keyboard(address: str, lang: str) -> InlineKeyboardMarkup:
-    """Four explorer buttons under any wallet-specific reply, in two rows.
+    """Three explorer buttons under any wallet-specific reply.
 
-    Coinmarketman's app is login-walled (no public per-address URL), so the
-    Coinmarketman button opens the app root; the user navigates from there.
+    Hyperliquid app explorer doesn't expose per-wallet position context, so we
+    omit it here. Coinmarketman's app is login-walled (no public per-address
+    URL), so the Coinmarketman button opens the app root.
     """
     addr = address.lower()
     return InlineKeyboardMarkup(
@@ -47,14 +48,10 @@ def explorer_keyboard(address: str, lang: str) -> InlineKeyboardMarkup:
                 ),
                 InlineKeyboardButton(
                     text=t("btn.hyperdash", lang),
-                    url=f"https://hyperdash.info/trader/{addr}",
+                    url=f"https://hyperdash.info/address/{addr}",
                 ),
             ],
             [
-                InlineKeyboardButton(
-                    text=t("btn.hyperliquid", lang),
-                    url=f"https://app.hyperliquid.xyz/explorer/address/{addr}",
-                ),
                 InlineKeyboardButton(
                     text=t("btn.cmm", lang),
                     url="https://app.coinmarketman.com/",
