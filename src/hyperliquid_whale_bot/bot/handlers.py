@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 
 from aiogram import Bot, F, Router
@@ -14,9 +15,9 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from ..config import Settings
 from ..hl import HyperliquidClient
 from ..logging_setup import get_logger
-from ..models import NotificationKind, TrackedWallet
+from ..models import NotificationKind, TrackedWallet, WalletSnapshot
 from ..storage import Repository
-from .formatters import format_snapshot
+from .formatters import format_multi_snapshot, format_snapshot
 from .i18n import SUPPORTED_LANGS, button_texts, t
 from .keyboards import (
     ask_label_keyboard,
@@ -331,8 +332,26 @@ def build_router(settings: Settings, repo: Repository, hl: HyperliquidClient) ->
             await query.bot.send_message(chat_id, t("positions.empty", lang))
             return
         await query.answer()
-        for w in wallets:
-            await _send_wallet_snapshot_via_bot(query.bot, chat_id, hl, w.address, w.label, lang)
+        await query.bot.send_message(chat_id, t("status.fetching", lang))
+        results = await asyncio.gather(
+            *(hl.fetch_snapshot(w.address) for w in wallets),
+            return_exceptions=True,
+        )
+        items: list[tuple[str, WalletSnapshot]] = []
+        any_failed = False
+        for w, result in zip(wallets, results, strict=True):
+            if isinstance(result, BaseException):
+                log.error("positions.fetch_failed", address=w.address, error=repr(result))
+                any_failed = True
+                continue
+            items.append((w.label, result))
+        if not items:
+            await query.bot.send_message(chat_id, t("status.error", lang))
+            return
+        for chunk in format_multi_snapshot(items, lang):
+            await query.bot.send_message(chat_id, chunk, parse_mode=ParseMode.HTML)
+        if any_failed:
+            await query.bot.send_message(chat_id, t("status.error", lang))
 
     @router.callback_query(F.data == "pos:pick")
     async def cb_positions_pick(query: CallbackQuery) -> None:

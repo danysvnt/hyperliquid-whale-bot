@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from hyperliquid_whale_bot.bot.formatters import format_event, format_snapshot
+from hyperliquid_whale_bot.bot.formatters import (
+    format_event,
+    format_multi_snapshot,
+    format_snapshot,
+)
 from hyperliquid_whale_bot.models import (
     EventKind,
     Position,
@@ -101,6 +105,71 @@ def test_format_event_includes_copyable_address() -> None:
     )
     text = format_event(event, label=LABEL, lang="en")
     assert f"<code>{ADDR.lower()}</code>" in text
+
+
+def test_format_multi_snapshot_renders_all_wallets_in_one_message() -> None:
+    """Multi-snapshot rendering combines wallets into a single message with title + per-wallet blocks."""
+    snap_with_pos = WalletSnapshot(
+        address="0x" + "11" * 20,
+        positions=(_make_position(coin="BTC"),),
+        captured_at=datetime.now(UTC),
+    )
+    snap_empty = WalletSnapshot(
+        address="0x" + "22" * 20,
+        positions=(),
+        captured_at=datetime.now(UTC),
+    )
+    snap_with_pos2 = WalletSnapshot(
+        address="0x" + "33" * 20,
+        positions=(_make_position(coin="ETH", side=Side.SHORT),),
+        captured_at=datetime.now(UTC),
+    )
+    items = [("alpha", snap_with_pos), ("beta", snap_empty), ("gamma", snap_with_pos2)]
+    chunks = format_multi_snapshot(items, lang="ru")
+    assert len(chunks) == 1, "small payload should fit in one message"
+    text = chunks[0]
+    assert "Все открытые позиции" in text
+    for snap in (snap_with_pos, snap_empty, snap_with_pos2):
+        assert f"<code>{snap.address.lower()}</code>" in text
+    for label in ("alpha", "beta", "gamma"):
+        assert label in text
+    assert "нет открытых позиций" in text, "empty wallet renders the placeholder line"
+
+
+def test_format_multi_snapshot_escapes_html_in_labels() -> None:
+    """User-supplied wallet labels must be HTML-escaped to prevent injection."""
+    snap = WalletSnapshot(
+        address="0x" + "ab" * 20,
+        positions=(),
+        captured_at=datetime.now(UTC),
+    )
+    chunks = format_multi_snapshot([("<script>x</script>", snap)], lang="en")
+    text = chunks[0]
+    assert "<script>" not in text
+    assert "&lt;script&gt;" in text
+
+
+def test_format_multi_snapshot_splits_into_chunks_when_oversized() -> None:
+    """When the combined render exceeds Telegram's soft limit, it splits on wallet boundaries."""
+    # Build many wallets so combined render must exceed _TG_MSG_SOFT_LIMIT (3900).
+    snaps = []
+    for i in range(40):
+        addr = "0x" + f"{i:02x}" * 20
+        snaps.append(
+            (
+                f"wallet_{i}",
+                WalletSnapshot(
+                    address=addr,
+                    positions=(_make_position(coin=f"C{i}"),),
+                    captured_at=datetime.now(UTC),
+                ),
+            )
+        )
+    chunks = format_multi_snapshot(snaps, lang="en")
+    assert len(chunks) >= 2, "expected at least two chunks for 40 wallets"
+    for chunk in chunks:
+        assert len(chunk) <= 4096
+        assert "All open positions" in chunk, "title must appear on every chunk for context"
 
 
 def test_format_event_close_uses_pnl_marker() -> None:

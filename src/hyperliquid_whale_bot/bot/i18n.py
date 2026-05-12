@@ -280,6 +280,16 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "en": "You don't have any wallets yet — add one with /add first.",
         "uk": "Список гаманців порожній — додай хоча б один через /add.",
     },
+    "positions.summary_title": {
+        "ru": "📊 <b>Все открытые позиции</b>",
+        "en": "📊 <b>All open positions</b>",
+        "uk": "📊 <b>Всі відкриті позиції</b>",
+    },
+    "positions.empty_wallet": {
+        "ru": "<i>нет открытых позиций</i>",
+        "en": "<i>no open positions</i>",
+        "uk": "<i>немає відкритих позицій</i>",
+    },
     "positions.not_found": {
         "ru": "Этот кошелёк больше не в твоём списке.",
         "en": "That wallet is no longer in your list.",
