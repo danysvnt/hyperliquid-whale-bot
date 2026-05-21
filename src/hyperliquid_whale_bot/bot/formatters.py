@@ -1,0 +1,190 @@
+"""Format `PositionEvent`s and snapshots into Telegram-friendly HTML messages."""
+
+from __future__ import annotations
+
+from html import escape
+
+from ..models import EventKind, Position, PositionEvent, Side, WalletSnapshot
+from .i18n import t
+
+
+def format_event(event: PositionEvent, label: str, lang: str) -> str:
+    """Render a `PositionEvent` as an HTML-formatted Telegram message."""
+    header = _event_header(event, label, lang)
+    address_line = f"<code>{event.address.lower()}</code>"
+    body = _event_body(event, lang)
+    return f"{header}\n{address_line}\n\n{body}"
+
+
+def format_snapshot(snapshot: WalletSnapshot, label: str, lang: str) -> str:
+    """Render the current open positions of a wallet (used by /status)."""
+    address_line = f"<code>{snapshot.address.lower()}</code>"
+    if not snapshot.positions:
+        return f"{t('status.no_positions', lang, label=escape(label))}\n{address_line}"
+
+    title = t("status.title", lang, label=escape(label))
+    lines = [title, address_line]
+    for pos in snapshot.positions:
+        lines.append("")
+        lines.append(_pos_block(pos, lang))
+    return "\n".join(lines)
+
+
+# --- internal helpers ------------------------------------------------------
+
+
+def _event_header(event: PositionEvent, label: str, lang: str) -> str:
+    """First line of the message: action + side + coin + label."""
+    action = t(f"event.{event.kind.value}", lang)
+    side_label = _side_label(event.position.side, lang)
+    coin = escape(event.position.coin)
+    label_html = f"<b>{escape(label)}</b>"
+    return f"{action} {side_label} <b>{coin}</b> · {label_html}"
+
+
+def _event_body(event: PositionEvent, lang: str) -> str:
+    """Body lines depend on event kind."""
+    pos = event.position
+    prev = event.previous
+
+    if event.kind == EventKind.OPEN:
+        return "\n".join(
+            [
+                _kv(t("field.size", lang), _fmt_size(pos.size, pos.coin)),
+                _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
+                _kv(t("field.entry", lang), _fmt_usd(pos.entry_price)),
+                _kv(t("field.leverage", lang), _fmt_leverage(pos)),
+            ]
+        )
+
+    if event.kind == EventKind.CLOSE and prev is not None:
+        return "\n".join(
+            [
+                _kv(t("field.size", lang), _fmt_size(prev.size, prev.coin)),
+                _kv(t("field.amount", lang), _fmt_usd(prev.notional_usd)),
+                _kv(t("field.entry", lang), _fmt_usd(prev.entry_price)),
+                _kv(t("field.pnl", lang), _fmt_pnl(prev.unrealized_pnl)),
+            ]
+        )
+
+    if event.kind in (EventKind.INCREASE, EventKind.DECREASE) and prev is not None:
+        delta_str = _fmt_signed_usd(event.notional_delta_usd)
+        pct_str = f"{event.pct_change:+.1f}%"
+        return "\n".join(
+            [
+                _kv(
+                    t("field.size", lang),
+                    t(
+                        "field.from_to",
+                        lang,
+                        a=_fmt_size(prev.size, prev.coin),
+                        b=_fmt_size(pos.size, pos.coin),
+                    ),
+                ),
+                _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
+                _kv(t("field.delta", lang), f"{delta_str} ({pct_str})"),
+                _kv(t("field.leverage", lang), _fmt_leverage(pos)),
+            ]
+        )
+
+    if event.kind == EventKind.LEVERAGE_CHANGE and prev is not None:
+        return _kv(
+            t("field.leverage", lang),
+            t(
+                "field.from_to",
+                lang,
+                a=_fmt_leverage(prev),
+                b=_fmt_leverage(pos),
+            ),
+        )
+
+    if event.kind == EventKind.SIDE_FLIP and prev is not None:
+        return "\n".join(
+            [
+                _kv(
+                    t("field.size", lang),
+                    t(
+                        "field.from_to",
+                        lang,
+                        a=f"{_side_label(prev.side, lang)} {_fmt_size(prev.size, prev.coin)}",
+                        b=f"{_side_label(pos.side, lang)} {_fmt_size(pos.size, pos.coin)}",
+                    ),
+                ),
+                _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
+                _kv(t("field.leverage", lang), _fmt_leverage(pos)),
+            ]
+        )
+
+    # Fallback (shouldn't happen).
+    return _pos_block(pos, lang)
+
+
+def _pos_block(pos: Position, lang: str) -> str:
+    side_label = _side_label(pos.side, lang)
+    return "\n".join(
+        [
+            f"<b>{escape(pos.coin)}</b> · {side_label}",
+            _kv(t("field.size", lang), _fmt_size(pos.size, pos.coin)),
+            _kv(t("field.amount", lang), _fmt_usd(pos.notional_usd)),
+            _kv(t("field.entry", lang), _fmt_usd(pos.entry_price)),
+            _kv(t("field.leverage", lang), _fmt_leverage(pos)),
+            _kv(t("field.pnl", lang), _fmt_pnl(pos.unrealized_pnl)),
+        ]
+    )
+
+
+def _kv(key: str, value: str) -> str:
+    return f"<b>{key}:</b> {value}"
+
+
+def _side_label(side: Side, lang: str) -> str:
+    return t("field.long" if side == Side.LONG else "field.short", lang)
+
+
+def _fmt_leverage(pos: Position) -> str:
+    return f"{pos.leverage:g}x ({pos.leverage_type})"
+
+
+def _fmt_size(amount: float, coin: str) -> str:
+    coin_html = escape(coin)
+    if amount >= 1_000_000:
+        return f"{amount / 1_000_000:.2f}M {coin_html}"
+    if amount >= 1_000:
+        return f"{amount / 1_000:.2f}K {coin_html}"
+    # For sub-1000 amounts, show up to 4 significant decimals and strip trailing zeros.
+    if amount >= 1:
+        return f"{_strip_zeros(f'{amount:.4f}')} {coin_html}"
+    if amount >= 0.001:
+        return f"{_strip_zeros(f'{amount:.6f}')} {coin_html}"
+    return f"{amount:.8g} {coin_html}"
+
+
+def _strip_zeros(s: str) -> str:
+    """Strip trailing zeros from a fixed-point number string. '0.5000' -> '0.5'."""
+    if "." not in s:
+        return s
+    return s.rstrip("0").rstrip(".")
+
+
+def _fmt_usd(amount: float) -> str:
+    if amount >= 1_000_000:
+        return f"${amount / 1_000_000:.2f}M"
+    if amount >= 1_000:
+        return f"${amount / 1_000:.2f}K"
+    return f"${amount:,.2f}"
+
+
+def _fmt_signed_usd(amount: float) -> str:
+    sign = "+" if amount >= 0 else "-"
+    return f"{sign}{_fmt_usd(abs(amount))}"
+
+
+def _fmt_pnl(amount: float) -> str:
+    """Format PnL with a colored indicator emoji so positive / negative is obvious at a glance."""
+    if amount > 0:
+        marker = "\U0001f7e2"  # 🟢
+    elif amount < 0:
+        marker = "\U0001f534"  # 🔴
+    else:
+        marker = "\u26aa"  # ⚪
+    return f"{marker} {_fmt_signed_usd(amount)}"
