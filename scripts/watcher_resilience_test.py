@@ -31,9 +31,15 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from hyperliquid_whale_bot.config import Settings
 from hyperliquid_whale_bot.hl.watcher import DispatchedEvent, Watcher
-from hyperliquid_whale_bot.models import Position, Side, WalletSnapshot
+from hyperliquid_whale_bot.models import (
+    Position,
+    Side,
+    WalletSnapshot,
+    WalletTwapSnapshot,
+)
 from hyperliquid_whale_bot.storage.db import Database
 from hyperliquid_whale_bot.storage.repo import Repository
+from hyperliquid_whale_bot.twap_diff import TwapBucketState
 
 ADDR_A = "0x" + "aa" * 20
 ADDR_B = "0x" + "bb" * 20
@@ -64,6 +70,14 @@ class StubClient:
     async def fetch_snapshot(self, address: str) -> WalletSnapshot:
         return fake_snapshot(address)
 
+    async def fetch_twap_state(self, address: str) -> WalletTwapSnapshot:
+        # TWAP is not the subject of this resilience test — return an empty snapshot.
+        return WalletTwapSnapshot(
+            address=address.lower(),
+            twaps=(),
+            captured_at=datetime.now(UTC),
+        )
+
 
 class FailingRepoProxy:
     """Wraps a real Repository; raises for address A on `save_snapshot`."""
@@ -87,8 +101,24 @@ class FailingRepoProxy:
             raise RuntimeError("synthetic DB failure on address A")
         await self._inner.save_snapshot(snapshot)
 
-    async def chats_subscribed_to(self, address: str) -> list[tuple[int, str]]:
-        return await self._inner.chats_subscribed_to(address)
+    async def chats_subscribed_to(self, address: str, kind=None) -> list[tuple[int, str]]:  # type: ignore[no-untyped-def]
+        if kind is None:
+            return await self._inner.chats_subscribed_to(address)
+        return await self._inner.chats_subscribed_to(address, kind=kind)
+
+    # --- TWAP forwards (empty/no-op for this resilience test) -------------
+    async def get_twap_snapshot(self, address: str) -> WalletTwapSnapshot | None:
+        return None
+
+    async def get_twap_bucket_states(self, address: str) -> dict[int, TwapBucketState]:
+        return {}
+
+    async def save_twap_snapshot_and_buckets(
+        self,
+        snapshot: WalletTwapSnapshot,
+        bucket_states: dict[int, TwapBucketState],
+    ) -> None:
+        return None
 
 
 async def main() -> int:

@@ -7,7 +7,17 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
-from ..models import NotificationKind, Position, Side, TrackedWallet, WalletSnapshot
+from ..models import (
+    NotificationKind,
+    Position,
+    Side,
+    TrackedWallet,
+    TwapState,
+    TwapStatus,
+    WalletSnapshot,
+    WalletTwapSnapshot,
+)
+from ..twap_diff import TwapBucketState
 from .db import Database
 
 ADDRESS_LEN = 42  # "0x" + 40 hex chars
@@ -257,6 +267,135 @@ class Repository:
             await conn.commit()
             return cursor.rowcount
 
+    # ---------- twap states ----------
+
+    async def get_twap_snapshot(self, address: str) -> WalletTwapSnapshot | None:
+        """Load the last persisted TWAP snapshot for a wallet.
+
+        Returns None if no rows exist (i.e. the watcher has never seen any
+        TWAP for this address). An empty snapshot (`twaps=()`) is returned
+        only when rows exist but all decode to None — should not happen in
+        practice.
+        """
+        addr = _normalize_address(address)
+        async with self.db.connect() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT twap_id, state_json, captured_at
+                FROM twap_states
+                WHERE address = ?
+                """,
+                (addr,),
+            )
+            rows = await cursor.fetchall()
+            if not rows:
+                return None
+            twaps: list[TwapState] = []
+            latest_captured: datetime | None = None
+            for row in rows:
+                state = _decode_twap_state(row["state_json"])
+                if state is not None:
+                    twaps.append(state)
+                row_captured = datetime.fromisoformat(row["captured_at"])
+                if latest_captured is None or row_captured > latest_captured:
+                    latest_captured = row_captured
+            return WalletTwapSnapshot(
+                address=addr,
+                twaps=tuple(twaps),
+                captured_at=latest_captured or datetime.now(UTC),
+            )
+
+    async def get_twap_bucket_states(self, address: str) -> dict[int, TwapBucketState]:
+        """Load the persisted bucket-state for every TWAP id we've tracked for a wallet."""
+        addr = _normalize_address(address)
+        async with self.db.connect() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT twap_id, last_emitted_bucket_pct, started_emitted, terminal_emitted
+                FROM twap_states
+                WHERE address = ?
+                """,
+                (addr,),
+            )
+            rows = await cursor.fetchall()
+            out: dict[int, TwapBucketState] = {}
+            for row in rows:
+                tid = int(row["twap_id"])
+                out[tid] = TwapBucketState(
+                    twap_id=tid,
+                    last_emitted_bucket_pct=int(row["last_emitted_bucket_pct"]),
+                    started_emitted=bool(row["started_emitted"]),
+                    terminal_emitted=bool(row["terminal_emitted"]),
+                )
+            return out
+
+    async def save_twap_snapshot_and_buckets(
+        self,
+        snapshot: WalletTwapSnapshot,
+        bucket_states: dict[int, TwapBucketState],
+    ) -> None:
+        """Upsert the TWAP snapshot and per-twap bucket states for an address.
+
+        We persist the union of (currently-visible TWAPs) and (TWAPs already
+        in the bucket_states map) — the latter so terminal_emitted=True survives
+        even after a TWAP disappears from the HL response.
+        """
+        addr = _normalize_address(snapshot.address)
+        captured = snapshot.captured_at.isoformat()
+        by_id = snapshot.by_id()
+        async with self.db.connect() as conn:
+            # 1. Upsert current TWAPs with their bucket state.
+            for state in snapshot.twaps:
+                bucket = bucket_states.get(
+                    state.twap_id, TwapBucketState(twap_id=state.twap_id)
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO twap_states (
+                        address, twap_id, state_json, last_emitted_bucket_pct,
+                        started_emitted, terminal_emitted, captured_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(address, twap_id) DO UPDATE SET
+                        state_json              = excluded.state_json,
+                        last_emitted_bucket_pct = excluded.last_emitted_bucket_pct,
+                        started_emitted         = excluded.started_emitted,
+                        terminal_emitted        = excluded.terminal_emitted,
+                        captured_at             = excluded.captured_at
+                    """,
+                    (
+                        addr,
+                        state.twap_id,
+                        json.dumps(_encode_twap_state(state)),
+                        bucket.last_emitted_bucket_pct,
+                        1 if bucket.started_emitted else 0,
+                        1 if bucket.terminal_emitted else 0,
+                        captured,
+                    ),
+                )
+            # 2. For TWAPs that are tracked-but-disappeared, only update flags.
+            for twap_id, bucket in bucket_states.items():
+                if twap_id in by_id:
+                    continue
+                await conn.execute(
+                    """
+                    UPDATE twap_states
+                    SET last_emitted_bucket_pct = ?,
+                        started_emitted = ?,
+                        terminal_emitted = ?,
+                        captured_at = ?
+                    WHERE address = ? AND twap_id = ?
+                    """,
+                    (
+                        bucket.last_emitted_bucket_pct,
+                        1 if bucket.started_emitted else 0,
+                        1 if bucket.terminal_emitted else 0,
+                        captured,
+                        addr,
+                        twap_id,
+                    ),
+                )
+            await conn.commit()
+
 
 # ---------- helpers ----------
 
@@ -277,6 +416,45 @@ def _encode_position(p: Position) -> dict[str, Any]:
     # Side is an Enum; serialize as its value.
     d["side"] = p.side.value
     return d
+
+
+def _encode_twap_state(t: TwapState) -> dict[str, Any]:
+    return {
+        "twap_id": t.twap_id,
+        "coin": t.coin,
+        "side": t.side.value,
+        "total_size": t.total_size,
+        "executed_size": t.executed_size,
+        "executed_notional_usd": t.executed_notional_usd,
+        "minutes": t.minutes,
+        "status": t.status.value,
+        "started_at": t.started_at.isoformat(),
+        "reduce_only": t.reduce_only,
+        "randomize": t.randomize,
+    }
+
+
+def _decode_twap_state(payload: str) -> TwapState | None:
+    try:
+        d = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    try:
+        return TwapState(
+            twap_id=int(d["twap_id"]),
+            coin=str(d["coin"]),
+            side=Side(d["side"]),
+            total_size=float(d["total_size"]),
+            executed_size=float(d["executed_size"]),
+            executed_notional_usd=float(d.get("executed_notional_usd", 0.0)),
+            minutes=int(d.get("minutes", 0)),
+            status=TwapStatus(d["status"]),
+            started_at=datetime.fromisoformat(d["started_at"]),
+            reduce_only=bool(d.get("reduce_only", False)),
+            randomize=bool(d.get("randomize", False)),
+        )
+    except (KeyError, ValueError, TypeError):
+        return None
 
 
 def _decode_snapshot(address: str, payload: str, captured_at_iso: str) -> WalletSnapshot:

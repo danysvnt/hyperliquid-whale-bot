@@ -187,6 +187,53 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "en": "🔄 Flipped side",
         "uk": "🔄 Перевернув позицію",
     },
+    # --- TWAP event headers ---
+    "event.twap_started": {
+        "ru": "🧊 Запустил TWAP",
+        "en": "🧊 Started TWAP",
+        "uk": "🧊 Запустив TWAP",
+    },
+    "event.twap_slice": {
+        "ru": "🧊 TWAP-прогресс",
+        "en": "🧊 TWAP progress",
+        "uk": "🧊 TWAP-прогрес",
+    },
+    "event.twap_finished": {
+        "ru": "🧊 TWAP исполнен",
+        "en": "🧊 TWAP filled",
+        "uk": "🧊 TWAP виконано",
+    },
+    "event.twap_cancelled": {
+        "ru": "🧊 TWAP отменён",
+        "en": "🧊 TWAP cancelled",
+        "uk": "🧊 TWAP скасовано",
+    },
+    # --- TWAP body fields ---
+    "twap.field.total": {"ru": "Объём", "en": "Total", "uk": "Обсяг"},
+    "twap.field.executed": {"ru": "Исполнено", "en": "Filled", "uk": "Виконано"},
+    "twap.field.executed_usd": {
+        "ru": "Сумма исполнения",
+        "en": "Filled amount",
+        "uk": "Сума виконання",
+    },
+    "twap.field.progress": {"ru": "Прогресс", "en": "Progress", "uk": "Прогрес"},
+    "twap.field.duration": {"ru": "Длительность", "en": "Duration", "uk": "Тривалість"},
+    "twap.field.kind": {"ru": "Тип", "en": "Type", "uk": "Тип"},
+    "twap.field.minutes_value": {
+        "ru": "{n} мин",
+        "en": "{n} min",
+        "uk": "{n} хв",
+    },
+    "twap.flag.reduce_only": {
+        "ru": "reduce-only",
+        "en": "reduce-only",
+        "uk": "reduce-only",
+    },
+    "twap.flag.randomize": {
+        "ru": "randomize",
+        "en": "randomize",
+        "uk": "randomize",
+    },
     # --- field labels in event messages ---
     "field.long": {"ru": "🟩 LONG", "en": "🟩 LONG", "uk": "🟩 LONG"},
     "field.short": {"ru": "🟥 SHORT", "en": "🟥 SHORT", "uk": "🟥 SHORT"},
@@ -271,14 +318,14 @@ _TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "uk": "Позиції: ⬜ ВИМК.",
     },
     "wset.toggle.twap.on": {
-        "ru": "TWAP-ордера: ✅ ВКЛ · скоро",
-        "en": "TWAP orders: ✅ ON · soon",
-        "uk": "TWAP-ордери: ✅ УВІМК. · скоро",
+        "ru": "TWAP-ордера: ✅ ВКЛ",
+        "en": "TWAP orders: ✅ ON",
+        "uk": "TWAP-ордери: ✅ УВІМК.",
     },
     "wset.toggle.twap.off": {
-        "ru": "TWAP-ордера: ⬜ ВЫКЛ · скоро",
-        "en": "TWAP orders: ⬜ OFF · soon",
-        "uk": "TWAP-ордери: ⬜ ВИМК. · скоро",
+        "ru": "TWAP-ордера: ⬜ ВЫКЛ",
+        "en": "TWAP orders: ⬜ OFF",
+        "uk": "TWAP-ордери: ⬜ ВИМК.",
     },
     "wset.toggle.limit.on": {
         "ru": "Лимитные ордера: ✅ ВКЛ · скоро",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 
@@ -120,8 +120,202 @@ class NotificationKind(StrEnum):
     """Per-wallet notification toggle (one flag per row in tracked_wallets)."""
 
     POSITIONS = "positions"  # open/close/increase/decrease/leverage/side_flip
-    TWAP = "twap"  # phase-2: TWAP slices
+    TWAP = "twap"  # TWAP order started / sliced / finished / cancelled
     LIMIT = "limit"  # phase-2: open/cancel/fill of limit orders
+
+
+class TwapStatus(StrEnum):
+    """Lifecycle status of a TWAP order on Hyperliquid.
+
+    Mirrors the upstream `status.status` field. We treat unknown / "error" as
+    terminal too — see `is_terminal`.
+    """
+
+    ACTIVATED = "activated"
+    FINISHED = "finished"
+    TERMINATED = "terminated"
+    ERROR = "error"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in (TwapStatus.FINISHED, TwapStatus.TERMINATED, TwapStatus.ERROR)
+
+
+@dataclass(frozen=True, slots=True)
+class TwapState:
+    """A single TWAP order on Hyperliquid at a given point in time.
+
+    Aggregated from `twapHistory` (the lifecycle entry) and `userTwapSliceFills`
+    (per-slice executions summed by `twapId`).
+
+    `executed_size` is the sum of slice fills observed so far; it grows over
+    the TWAP's lifetime.
+    """
+
+    twap_id: int
+    coin: str
+    side: Side  # B (buy/long) -> LONG, A (ask/sell/short) -> SHORT
+    total_size: float  # `sz` — target size to execute
+    executed_size: float  # sum of slice `fill.sz`
+    executed_notional_usd: float  # sum of slice |fill.sz * fill.px|
+    minutes: int  # duration of the TWAP order
+    status: TwapStatus
+    started_at: datetime  # from state.timestamp (ms since epoch)
+    reduce_only: bool = False
+    randomize: bool = False
+
+    @property
+    def progress_pct(self) -> float:
+        """Executed / total as a percent in [0, 100]. Clamps for safety."""
+        if self.total_size <= 0:
+            return 0.0
+        pct = self.executed_size / self.total_size * 100.0
+        if pct < 0:
+            return 0.0
+        if pct > 100.0:
+            return 100.0
+        return pct
+
+
+@dataclass(frozen=True, slots=True)
+class WalletTwapSnapshot:
+    """Snapshot of all known TWAP orders for a wallet at one point in time.
+
+    Includes both active TWAPs and recent terminal ones (so the diff engine can
+    tell whether an active TWAP we saw last tick has now finished/cancelled).
+    """
+
+    address: str
+    twaps: tuple[TwapState, ...]
+    captured_at: datetime
+
+    def by_id(self) -> dict[int, TwapState]:
+        return {t.twap_id: t for t in self.twaps}
+
+
+class TwapEventKind(StrEnum):
+    """Type of TWAP change detected by the twap-diff engine."""
+
+    STARTED = "twap_started"
+    SLICE = "twap_slice"
+    FINISHED = "twap_finished"
+    CANCELLED = "twap_cancelled"
+
+
+@dataclass(frozen=True, slots=True)
+class TwapEvent:
+    """A single TWAP lifecycle change for a wallet."""
+
+    kind: TwapEventKind
+    address: str
+    twap: TwapState
+    previous: TwapState | None = None
+    progress_pct: float = 0.0  # snapshot of twap.progress_pct at emit time
+    captured_at: datetime | None = None
+
+    # For SLICE events: the cumulative % bucket that triggered this slice
+    # (e.g. 10, 20, 30, ...). Lets formatters say "10%", "20%", etc. without
+    # recomputing from progress_pct.
+    bucket_pct: int = 0
+
+    @property
+    def coin(self) -> str:
+        return self.twap.coin
+
+
+def parse_twap_state(
+    history_entry: dict[str, object],
+    executed_size: float = 0.0,
+    executed_notional_usd: float = 0.0,
+) -> TwapState | None:
+    """Build a `TwapState` from one entry of the `twapHistory` info endpoint.
+
+    `history_entry` shape (subset, verified against mainnet):
+        {
+          "time": 1758728334,
+          "state": {
+            "coin": "BTC",
+            "user": "0x...",
+            "side": "A",            # "B" -> LONG, "A" -> SHORT
+            "sz": "14.6764",
+            "executedSz": "0.0",    # not trustworthy across SLICE events; we re-sum from fills
+            "executedNtl": "0.0",
+            "minutes": 5,
+            "reduceOnly": false,
+            "randomize": false,
+            "timestamp": 1758728334355
+          },
+          "status": { "status": "activated" }      # or "finished" / "terminated" / "error"
+        }
+
+    The `twap_id` is NOT in the history payload — it must be supplied by the
+    caller (deduced from `userTwapSliceFills` or assigned by enumeration). We
+    require a non-zero twap_id stamped on the dict via the `_twap_id` key so
+    that this helper can stay pure.
+
+    Returns None if the payload is malformed (defensive — HL may evolve the
+    schema and we'd rather skip than crash the watcher).
+    """
+    state_raw = history_entry.get("state")
+    if not isinstance(state_raw, dict):
+        return None
+    status_raw = history_entry.get("status")
+    status_str = ""
+    if isinstance(status_raw, dict):
+        status_str = _as_str(status_raw.get("status", "")).lower()
+    elif isinstance(status_raw, str):
+        status_str = status_raw.lower()
+    try:
+        status = TwapStatus(status_str)
+    except ValueError:
+        return None
+
+    twap_id_raw = history_entry.get("_twap_id")
+    if twap_id_raw is None:
+        return None
+    try:
+        twap_id = int(_as_str(twap_id_raw))
+    except ValueError:
+        return None
+
+    side_raw = _as_str(state_raw.get("side", "")).upper()
+    if side_raw not in ("A", "B"):
+        return None
+    side = Side.LONG if side_raw == "B" else Side.SHORT
+
+    try:
+        total = float(_as_str(state_raw.get("sz", 0) or 0))
+    except (TypeError, ValueError):
+        return None
+    if total <= 0:
+        return None
+
+    minutes_raw = state_raw.get("minutes", 0)
+    try:
+        minutes = int(_as_str(minutes_raw) or 0)
+    except ValueError:
+        minutes = 0
+
+    ts_raw = state_raw.get("timestamp", 0)
+    try:
+        ts_ms = int(_as_str(ts_raw) or 0)
+    except ValueError:
+        ts_ms = 0
+    started_at = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC) if ts_ms > 0 else datetime.now(UTC)
+
+    return TwapState(
+        twap_id=twap_id,
+        coin=_as_str(state_raw.get("coin", "")),
+        side=side,
+        total_size=total,
+        executed_size=max(0.0, executed_size),
+        executed_notional_usd=max(0.0, executed_notional_usd),
+        minutes=minutes,
+        status=status,
+        started_at=started_at,
+        reduce_only=bool(state_raw.get("reduceOnly", False)),
+        randomize=bool(state_raw.get("randomize", False)),
+    )
 
 
 @dataclass(frozen=True, slots=True)

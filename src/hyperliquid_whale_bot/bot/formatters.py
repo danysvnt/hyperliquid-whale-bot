@@ -4,12 +4,28 @@ from __future__ import annotations
 
 from html import escape
 
-from ..models import EventKind, Position, PositionEvent, Side, WalletSnapshot
+from ..models import (
+    EventKind,
+    Position,
+    PositionEvent,
+    Side,
+    TwapEvent,
+    TwapEventKind,
+    TwapState,
+    WalletSnapshot,
+)
 from .i18n import t
 
 
-def format_event(event: PositionEvent, label: str, lang: str) -> str:
-    """Render a `PositionEvent` as an HTML-formatted Telegram message."""
+def format_event(event: PositionEvent | TwapEvent, label: str, lang: str) -> str:
+    """Render an event as an HTML-formatted Telegram message.
+
+    Dispatches on event type: position events use the existing perp-position
+    layout; TWAP events use a TWAP-specific layout. Both share the same
+    address-on-its-own-line convention so users can copy-tap the address.
+    """
+    if isinstance(event, TwapEvent):
+        return _format_twap_event(event, label, lang)
     header = _event_header(event, label, lang)
     address_line = f"<code>{event.address.lower()}</code>"
     body = _event_body(event, lang)
@@ -177,6 +193,93 @@ def _fmt_usd(amount: float) -> str:
 def _fmt_signed_usd(amount: float) -> str:
     sign = "+" if amount >= 0 else "-"
     return f"{sign}{_fmt_usd(abs(amount))}"
+
+
+def _format_twap_event(event: TwapEvent, label: str, lang: str) -> str:
+    """Render a TWAP lifecycle event."""
+    action = t(f"event.{event.kind.value}", lang)
+    side_label = _side_label(event.twap.side, lang)
+    coin = escape(event.twap.coin)
+    label_html = f"<b>{escape(label)}</b>"
+    header = f"{action} {side_label} <b>{coin}</b> · {label_html}"
+    address_line = f"<code>{event.address.lower()}</code>"
+    body = _twap_event_body(event, lang)
+    return f"{header}\n{address_line}\n\n{body}"
+
+
+def _twap_event_body(event: TwapEvent, lang: str) -> str:
+    twap = event.twap
+
+    if event.kind == TwapEventKind.STARTED:
+        return "\n".join(
+            [
+                _kv(t("twap.field.total", lang), _fmt_size(twap.total_size, twap.coin)),
+                _kv(t("twap.field.duration", lang), _fmt_minutes(twap.minutes, lang)),
+                _kv(t("twap.field.kind", lang), _twap_flags(twap, lang)),
+            ]
+        )
+
+    if event.kind == TwapEventKind.SLICE:
+        progress_str = f"{event.bucket_pct}%"
+        return "\n".join(
+            [
+                _kv(t("twap.field.progress", lang), progress_str),
+                _kv(
+                    t("twap.field.executed", lang),
+                    t(
+                        "field.from_to",
+                        lang,
+                        a=_fmt_size(twap.executed_size, twap.coin),
+                        b=_fmt_size(twap.total_size, twap.coin),
+                    ),
+                ),
+                _kv(t("twap.field.executed_usd", lang), _fmt_usd(twap.executed_notional_usd)),
+            ]
+        )
+
+    if event.kind == TwapEventKind.FINISHED:
+        return "\n".join(
+            [
+                _kv(t("twap.field.executed", lang), _fmt_size(twap.executed_size, twap.coin)),
+                _kv(t("twap.field.executed_usd", lang), _fmt_usd(twap.executed_notional_usd)),
+                _kv(t("twap.field.duration", lang), _fmt_minutes(twap.minutes, lang)),
+            ]
+        )
+
+    if event.kind == TwapEventKind.CANCELLED:
+        return "\n".join(
+            [
+                _kv(
+                    t("twap.field.executed", lang),
+                    t(
+                        "field.from_to",
+                        lang,
+                        a=_fmt_size(twap.executed_size, twap.coin),
+                        b=_fmt_size(twap.total_size, twap.coin),
+                    ),
+                ),
+                _kv(t("twap.field.executed_usd", lang), _fmt_usd(twap.executed_notional_usd)),
+                _kv(t("twap.field.progress", lang), f"{twap.progress_pct:.1f}%"),
+            ]
+        )
+
+    # Fallback — should not happen.
+    return _kv(t("twap.field.total", lang), _fmt_size(twap.total_size, twap.coin))
+
+
+def _twap_flags(twap: TwapState, lang: str) -> str:
+    """Compact label for randomize / reduce-only flags. Falls back to 'TWAP'."""
+    parts: list[str] = ["TWAP"]
+    if twap.reduce_only:
+        parts.append(t("twap.flag.reduce_only", lang))
+    if twap.randomize:
+        parts.append(t("twap.flag.randomize", lang))
+    return " · ".join(parts)
+
+
+def _fmt_minutes(minutes: int, lang: str) -> str:
+    """Render duration in minutes — used by TWAP messages."""
+    return t("twap.field.minutes_value", lang, n=minutes)
 
 
 def _fmt_pnl(amount: float) -> str:
